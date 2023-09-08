@@ -1,18 +1,21 @@
 import math
 
+import torch
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LambdaLR
 
 
 class CosineSchedulerWithRestarts(LambdaLR):
-
-    def __init__(self, optimizer: Optimizer,
-                 num_warmup_steps: int,
-                 num_training_steps: int,
-                 min_factor: float = 0.1,
-                 linear_decay: float = 0.67,
-                 num_cycles: int = 1,
-                 last_epoch: int = -1):
+    def __init__(
+        self,
+        optimizer: Optimizer,
+        num_warmup_steps: int,
+        num_training_steps: int,
+        min_factor: float = 0.1,
+        linear_decay: float = 0.67,
+        num_cycles: int = 1,
+        last_epoch: int = -1,
+    ):
         """From https://github.com/huggingface/transformers/blob/v4.18.0/src/transformers/optimization.py#L138
 
         Create a schedule with a learning rate that decreases following the values
@@ -48,5 +51,15 @@ class CosineSchedulerWithRestarts(LambdaLR):
             lin = 1.0 - (progress * linear_decay)
             return max(min_factor, cos * lin)
 
-        super(CosineSchedulerWithRestarts, self).__init__(optimizer, lr_lambda,
-                                                          last_epoch)
+        super(CosineSchedulerWithRestarts, self).__init__(
+            optimizer, lr_lambda, last_epoch
+        )
+
+
+if __name__ == "__main__":
+    model = torch.nn.Linear(10, 10)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    scheduler = CosineSchedulerWithRestarts(
+        optimizer=optimizer, num_warmup_steps=100, num_training_steps=1000
+    )
+    print(scheduler.get_last_lr())

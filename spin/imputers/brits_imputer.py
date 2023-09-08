@@ -1,4 +1,4 @@
-from tsl.imputers import Imputer
+from tsl.engines.imputer import Imputer
 
 from ..baselines import BRITS
 

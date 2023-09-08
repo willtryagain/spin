@@ -3,7 +3,7 @@ from typing import Optional
 import numpy as np
 from numpy.random import choice
 from torch_geometric.utils import k_hop_subgraph
-from tsl.data import Batch
+from tsl.data.data import Data as Batch
 from tsl.ops.connectivity import weighted_degree
 
 

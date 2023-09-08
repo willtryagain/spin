@@ -21,6 +21,11 @@ from tsl.ops.imputation import add_missing_values
 from tsl.utils import parser_utils, numpy_metrics
 from tsl.utils.parser_utils import ArgParser
 
+import sys
+sys.path.append('
+# print current working directory
+print(os.getcwd())
+
 from spin.baselines import SAITS, TransformerModel, BRITS
 from spin.imputers import SPINImputer, SAITSImputer, BRITSImputer
 from spin.models import SPINModel, SPINHierarchicalModel

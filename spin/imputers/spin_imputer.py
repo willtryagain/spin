@@ -2,8 +2,8 @@ from typing import Type, Mapping, Callable, Optional, Union, List
 
 import torch
 from torchmetrics import Metric
-from tsl.imputers import Imputer
-from tsl.predictors import Predictor
+from tsl.engines.imputer import Imputer
+from tsl.engines import Predictor
 
 from ..utils import k_hop_subgraph_sampler
 
@@ -94,7 +94,7 @@ class SPINImputer(Imputer):
 
     @staticmethod
     def add_argparse_args(parser, **kwargs):
-        parser = Predictor.add_argparse_args(parser)
+        parser.add_argument('--scale-target', type=bool, default=False)
         parser.add_argument('--whiten-prob', type=float, default=0.05)
         parser.add_argument('--prediction-loss-weight', type=float, default=1.0)
         parser.add_argument('--n-roots-subgraph', type=int, default=None)

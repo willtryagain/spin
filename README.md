@@ -67,21 +67,22 @@ The support code, including models and baselines, are packed in a python package
 
 ## Experiments
 
+python ./experiments/run_imputation.py --config imputation/spin.yaml --model-name spin --dataset-name bay_block
+
 The scripts used for the experiment in the paper are in the `experiments` folder.
 
 * `run_imputation.py` is used to compute the metrics for the deep imputation methods. An example of usage is
 
-	```bash
-	conda activate spin
-	python ./experiments/run_imputation.py --config imputation/spin.yaml --model-name spin --dataset-name bay_block
-	```
-
+  ```bash
+  conda activate spin
+  python ./experiments/run_imputation.py --config imputation/spin.yaml --model-name spin --dataset-name bay_block
+  ```
 * `run_inference.py` is used for the experiments on sparse datasets using pre-trained models. An example of usage is
 
-	```bash
-	conda activate spin
-	python ./experiments/run_inference.py --config inference.yaml --model-name spin --dataset-name bay_point --exp-name {exp_name}
-	```
+  ```bash
+  conda activate spin
+  python ./experiments/run_inference.py --config inference.yaml --model-name spin --dataset-name bay_point --exp-name {exp_name}
+  ```
 
 ## Bibtex reference
 
@@ -95,4 +96,3 @@ If you find this code useful please consider to cite our paper:
   year={2022}
 }
 ```
- 
