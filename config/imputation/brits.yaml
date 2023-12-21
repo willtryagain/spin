@@ -21,3 +21,5 @@ batches_epoch: 160
 #### Model params #############################################################
 model_name: 'brits'
 hidden_size: 64  # [64, 128, 256]
+
+

@@ -2,10 +2,10 @@ import math
 
 import torch
 from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LambdaLR
+from torch.optim.lr_scheduler import LambdaLR, _LRScheduler
 
 
-class CosineSchedulerWithRestarts(LambdaLR):
+class CosineSchedulerWithRestarts(LambdaLR, _LRScheduler):
     def __init__(
         self,
         optimizer: Optimizer,

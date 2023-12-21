@@ -15,6 +15,7 @@ from tsl.nn.blocks.encoders.transformer import (
 )
 from tsl.nn.layers import PositionalEncoding
 from tsl.utils.parser_utils import str_to_bool
+from icecream import ic
 
 
 class StaticGraphEmbedding(nn.Module):
@@ -195,10 +196,16 @@ class TransformerModel(nn.Module):
     def forward(self, x, u, mask):
         # x: [batches steps nodes features]
         # u: [batches steps (nodes) features]
+        # ic(x.shape)
+        # ic(mask.shape)
         x = x * mask
 
         h = self.h_enc(x)
+        # ic(h.shape)
         h = mask * h + (1 - mask) * self.mask_token()
+        # ic(h.shape)
+        # ic(self.mask_token().shape)
+        # exit()
 
         if self.condition_on_u:
             h = h + self.u_enc(u).unsqueeze(-2)

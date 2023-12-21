@@ -2,30 +2,33 @@ from typing import Optional, Tuple, Union
 
 import torch
 from torch import Tensor
+from torch.distributed.fsdp.wrap import wrap
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn.dense.linear import Linear
-from torch_geometric.typing import Adj, OptTensor, OptPairTensor
+from torch_geometric.typing import Adj, OptPairTensor, OptTensor
 from tsl.nn.layers.norm import LayerNorm
 
 from .additive_attention import TemporalAdditiveAttention
 
 
 class TemporalGraphAdditiveAttention(MessagePassing):
-    def __init__(self, input_size: Union[int, Tuple[int, int]],
-                 output_size: int,
-                 msg_size: Optional[int] = None,
-                 msg_layers: int = 1,
-                 root_weight: bool = True,
-                 reweight: Optional[str] = None,
-                 temporal_self_attention: bool = True,
-                 mask_temporal: bool = True,
-                 mask_spatial: bool = True,
-                 norm: bool = True,
-                 dropout: float = 0.,
-                 **kwargs):
-        kwargs.setdefault('aggr', 'add')
-        super(TemporalGraphAdditiveAttention, self).__init__(node_dim=-2,
-                                                             **kwargs)
+    def __init__(
+        self,
+        input_size: Union[int, Tuple[int, int]],
+        output_size: int,
+        msg_size: Optional[int] = None,
+        msg_layers: int = 1,
+        root_weight: bool = True,
+        reweight: Optional[str] = None,
+        temporal_self_attention: bool = True,
+        mask_temporal: bool = True,
+        mask_spatial: bool = True,
+        norm: bool = True,
+        dropout: float = 0.0,
+        **kwargs
+    ):
+        kwargs.setdefault("aggr", "add")
+        super(TemporalGraphAdditiveAttention, self).__init__(node_dim=-2, **kwargs)
 
         # store dimensions
         if isinstance(input_size, int):
@@ -50,30 +53,33 @@ class TemporalGraphAdditiveAttention(MessagePassing):
                 reweight=reweight,
                 dropout=dropout,
                 root_weight=False,
-                norm=False
+                norm=False,
             )
         else:
-            self.register_parameter('self_attention', None)
+            self.register_parameter("self_attention", None)
 
-        self.cross_attention = TemporalAdditiveAttention(input_size=input_size,
-                                                         output_size=output_size,
-                                                         msg_size=msg_size,
-                                                         msg_layers=msg_layers,
-                                                         reweight=reweight,
-                                                         dropout=dropout,
-                                                         root_weight=False,
-                                                         norm=False)
+        self.cross_attention = TemporalAdditiveAttention(
+            input_size=input_size,
+            output_size=output_size,
+            msg_size=msg_size,
+            msg_layers=msg_layers,
+            reweight=reweight,
+            dropout=dropout,
+            root_weight=False,
+            norm=False,
+        )
 
         if self.root_weight:
-            self.lin_skip = Linear(self.tgt_size, self.output_size,
-                                   bias_initializer='zeros')
+            self.lin_skip = Linear(
+                self.tgt_size, self.output_size, bias_initializer="zeros"
+            )
         else:
-            self.register_parameter('lin_skip', None)
+            self.register_parameter("lin_skip", None)
 
         if norm:
             self.norm = LayerNorm(output_size)
         else:
-            self.register_parameter('norm', None)
+            self.register_parameter("norm", None)
 
         self.reset_parameters()
 
@@ -86,9 +92,13 @@ class TemporalGraphAdditiveAttention(MessagePassing):
         if self.norm is not None:
             self.norm.reset_parameters()
 
-    def forward(self, x: OptPairTensor,
-                edge_index: Adj, edge_weight: OptTensor = None,
-                mask: OptTensor = None):
+    def forward(
+        self,
+        x: OptPairTensor,
+        edge_index: Adj,
+        edge_weight: OptTensor = None,
+        mask: OptTensor = None,
+    ):
         # inputs: [batch, steps, nodes, channels]
         if isinstance(x, Tensor):
             x_src = x_tgt = x
@@ -99,21 +109,25 @@ class TemporalGraphAdditiveAttention(MessagePassing):
         n_src, n_tgt = x_src.size(-2), x_tgt.size(-2)
 
         # propagate query, key and value
-        out = self.propagate(x=(x_src, x_tgt),
-                             edge_index=edge_index, edge_weight=edge_weight,
-                             mask=mask if self.mask_spatial else None,
-                             size=(n_src, n_tgt))
+        out = self.propagate(
+            x=(x_src, x_tgt),
+            edge_index=edge_index,
+            edge_weight=edge_weight,
+            mask=mask if self.mask_spatial else None,
+            size=(n_src, n_tgt),
+        )
 
         if self.self_attention is not None:
             s, l = x_src.size(1), x_tgt.size(1)
             if s == l:
-                attn_mask = ~torch.eye(l, l, dtype=torch.bool,
-                                       device=x_tgt.device)
+                attn_mask = ~torch.eye(l, l, dtype=torch.bool, device=x_tgt.device)
             else:
                 attn_mask = None
-            temp = self.self_attention(x=(x_src, x_tgt),
-                                       mask=mask if self.mask_temporal else None,
-                                       temporal_mask=attn_mask)
+            temp = self.self_attention(
+                x=(x_src, x_tgt),
+                mask=mask if self.mask_temporal else None,
+                temporal_mask=attn_mask,
+            )
             out = out + temp
 
         # skip connection
@@ -125,8 +139,9 @@ class TemporalGraphAdditiveAttention(MessagePassing):
 
         return out
 
-    def message(self, x_i: Tensor, x_j: Tensor,
-                edge_weight: OptTensor, mask_j: OptTensor) -> Tensor:
+    def message(
+        self, x_i: Tensor, x_j: Tensor, edge_weight: OptTensor, mask_j: OptTensor
+    ) -> Tensor:
         # [batch, steps, edges, channels]
 
         out = self.cross_attention((x_j, x_i), mask=mask_j)
