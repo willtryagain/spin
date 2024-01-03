@@ -299,7 +299,7 @@ class MTST(nn.Module):
         # Whiten missing values
         x = x * mask
 
-        h = torch.where(mask.bool(), x, x + self.mask_emb.weigt)
+        h = torch.where(mask.bool(), x, x + self.mask_emb.weight)
 
         return self.layer(h)
 
@@ -307,4 +307,17 @@ class MTST(nn.Module):
     def add_model_specific_args(parser):
         parser.add_argument("--seq-len", type=int)
         parser.add_argument("--node-index", type=int)
+        parser.add_argument(
+            "--hidden-size",
+            type=int,
+            default=32,
+            choices=[32, 64, 128, 256],
+        )
+        parser.add_argument("--u-size", type=int, default=None)
+        parser.add_argument("--output-size", type=int, default=None)
+        parser.add_argument("--temporal-self-attention", type=bool, default=True)
+        parser.add_argument("--reweight", type=str, default="softmax")
+        parser.add_argument("--n-layers", type=int, default=4)
+        parser.add_argument("--eta", type=int, default=3)
+        parser.add_argument("--message-layers", type=int, default=1)
         return parser

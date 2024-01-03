@@ -189,7 +189,7 @@ def run_experiment(args):
     ########################################
 
     # time embedding
-    if is_spin or args.model_name == "transformer":
+    if is_spin or args.model_name == "transformer" or args.model_name == "mtst":
         time_emb = dataset.datetime_encoded(["day", "week"]).values
         exog_map = {"global_temporal_encoding": time_emb}
 
@@ -197,7 +197,7 @@ def run_experiment(args):
     else:
         exog_map = input_map = None
 
-    if is_spin or args.model_name == "grin":
+    if is_spin or args.model_name == "grin" or args.model_name == "mtst":
         adj = dataset.get_connectivity(
             threshold=args.adj_threshold, include_self=False, force_symmetric=is_spin
         )
