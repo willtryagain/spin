@@ -10,8 +10,56 @@ from torch_geometric.nn.dense.linear import Linear
 from torch_geometric.typing import Adj, OptTensor, PairTensor
 from torch_scatter import scatter
 from torch_scatter.utils import broadcast
-from tsl.nn.blocks.encoders import MLP
+
+# from tsl.nn.blocks.encoders import MLP
 from tsl.nn.functional import sparse_softmax
+
+
+class MLP(nn.Module):
+    r"""
+    Simple Multi-layer Perceptron encoder with optional linear readout.
+
+    Args:
+        input_size (int): Input size.
+        hidden_size (int): Units in the hidden layers.
+        output_size (int, optional): Size of the optional readout.
+        n_layers (int, optional): Number of hidden layers. (default: 1)
+        activation (str, optional): Activation function. (default: `relu`)
+        dropout (float, optional): Dropout probability.
+    """
+
+    def __init__(
+        self,
+        input_size,
+        hidden_size,
+        output_size=None,
+        n_layers=1,
+        activation="relu",
+        dropout=0.0,
+    ):
+        super(MLP, self).__init__()
+        self.f = getattr(F, activation)
+
+        layers = []
+        for i in range(n_layers):
+            layers.append(nn.Linear(input_size if i == 0 else hidden_size, hidden_size))
+
+            if dropout > 0.0:
+                layers.append(nn.Dropout(dropout))
+
+        self.mlp = nn.Sequential(*layers)
+
+        if output_size is not None:
+            self.readout = nn.Linear(hidden_size, output_size)
+        else:
+            self.register_parameter("readout", None)
+
+    def forward(self, x):
+        """"""
+        out = self.mlp(x)
+        if self.readout is not None:
+            return self.readout(out)
+        return out
 
 
 class AdditiveAttention(MessagePassing):
@@ -47,45 +95,38 @@ class AdditiveAttention(MessagePassing):
         self.dropout = dropout
 
         # key bias is discarded in softmax
-        self.lin_src = wrap(
-            Linear(
-                self.src_size,
-                self.output_size,
-                weight_initializer="glorot",
-                bias_initializer="zeros",
-            )
+        self.lin_src = Linear(
+            self.src_size,
+            self.output_size,
+            weight_initializer="glorot",
+            bias_initializer="zeros",
         )
-        self.lin_tgt = wrap(
-            Linear(
-                self.tgt_size, self.output_size, weight_initializer="glorot", bias=False
-            )
+
+        self.lin_tgt = Linear(
+            self.tgt_size, self.output_size, weight_initializer="glorot", bias=False
         )
 
         if self.root_weight:
-            self.lin_skip = wrap(Linear(self.tgt_size, self.output_size, bias=False))
+            self.lin_skip = Linear(self.tgt_size, self.output_size, bias=False)
         else:
             self.register_parameter("lin_skip", None)
 
-        self.msg_nn = wrap(
-            nn.Sequential(
-                nn.PReLU(init=0.2),
-                MLP(
-                    self.output_size,
-                    self.msg_size,
-                    self.output_size,
-                    n_layers=self.msg_layers,
-                    dropout=self.dropout,
-                    activation="prelu",
-                ),
-            )
+        self.msg_nn = nn.Sequential(
+            nn.PReLU(init=0.2),
+            MLP(
+                self.output_size,
+                self.msg_size,
+                self.output_size,
+                n_layers=self.msg_layers,
+                dropout=self.dropout,
+                activation="prelu",
+            ),
         )
 
         if self.reweight == "softmax":
-            self.msg_gate = wrap(nn.Linear(self.output_size, 1, bias=False))
+            self.msg_gate = nn.Linear(self.output_size, 1, bias=False)
         else:
-            self.msg_gate = wrap(
-                nn.Sequential(nn.Linear(self.output_size, 1), nn.Sigmoid())
-            )
+            self.msg_gate = nn.Sequential(nn.Linear(self.output_size, 1), nn.Sigmoid())
 
         if norm:
             self.norm = LayerNorm(self.output_size)

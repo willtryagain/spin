@@ -7,8 +7,10 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import yaml
+from icecream import ic
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+from pytorch_lightning.plugins import DDPFullyShardedPlugin
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tsl import config, logger
 from tsl.data import ImputationDataset, SpatioTemporalDataModule
@@ -26,8 +28,8 @@ from tsl.utils.parser_utils import ArgParser
 print(os.getcwd())
 
 from spin.baselines import TransformerModel
-from spin.imputers import SPINImputer
-from spin.models import SPINHierarchicalModel, SPINModel
+from spin.imputers import SPINImputer, MTSTImputer
+from spin.models import SPINHierarchicalModel, SPINModel, MTST
 from spin.scheduler import CosineSchedulerWithRestarts
 
 
@@ -44,6 +46,8 @@ def get_model_classes(model_str):
         model, filler = TransformerModel, SPINImputer
     elif model_str == "brits":
         model, filler = BRITS, BRITSImputer
+    elif model_str == "mtst":
+        model, filler = MTST, MTSTImputer
     else:
         raise ValueError(f"Model {model_str} not available.")
     return model, filler
@@ -293,14 +297,17 @@ def run_experiment(args):
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         default_root_dir=logdir,
-        logger=tb_logger,
+        logger=wandb_logger,
         precision=args.precision,
         accumulate_grad_batches=args.split_batch_in,
-        # gpus=int(torch.cuda.is_available()),
-        devices=4,
-        num_nodes=1,
-        strategy="fsdp",
-        gradient_clip_val=args.grad_clip_val,
+        gpus=int(torch.cuda.is_available()),
+        # gpus=1,
+        # accelerator="gpu",
+        # devices=4,
+        # num_nodes=1,
+        # strategy="ddp",
+        # strategy=DDPFullyShardedPlugin(min_num_params=1e6, cpu_offload=False),
+        # gradient_clip_val=args.grad_clip_val,
         limit_train_batches=args.batches_epoch * args.split_batch_in,
         callbacks=[early_stop_callback, checkpoint_callback],
     )
@@ -325,6 +332,7 @@ def run_experiment(args):
         imputer, dataloaders=dm.test_dataloader(batch_size=args.batch_inference)
     )
     output = casting.numpy(output)
+
     y_hat, y_true, mask = (
         output["y_hat"].squeeze(-1),
         output["y"].squeeze(-1),

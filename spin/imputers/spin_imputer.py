@@ -58,10 +58,10 @@ class SPINImputer(Imputer):
         return super(SPINImputer, self).on_after_batch_transfer(batch, dataloader_idx)
 
     def training_step(self, batch, batch_idx):
-        # x, y, mask, transform = self._unpack_batch(batch)
-        # y_hat = self.forward(**x)
-        # ic(x.shape)
-        # ic(y_hat.shape)
+        x, y, mask, transform = self._unpack_batch(batch)
+        y_hat = self.forward(**x)
+        ic(x.shape)
+        ic(y_hat.shape)
 
         injected_missing = batch.original_mask - batch.mask
         if "target_nodes" in batch:
@@ -78,6 +78,7 @@ class SPINImputer(Imputer):
         return loss
 
     def validation_step(self, batch, batch_idx):
+        ic(batch_idx)
         # batch.input.target_mask = batch.eval_mask
         y_hat, y, val_loss = self.shared_step(batch, batch.eval_mask)
 
