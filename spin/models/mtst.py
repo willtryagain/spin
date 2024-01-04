@@ -9,11 +9,165 @@ import torch.nn.functional as F
 from icecream import ic
 from torch import Tensor, nn
 from torch.distributed.fsdp.wrap import wrap
-from torch.nn import LayerNorm, Linear
+from torch.nn import BatchNorm1d, LayerNorm, Linear
 from torch_geometric.nn import inits
 from torch_geometric.typing import List, OptTensor, Union
 from tsl.nn.blocks.encoders import MLP
 from tsl.nn.layers import PositionalEncoding
+
+
+def clones(module, N):
+    "Produce N identical layers."
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+
+
+class Encoder(nn.Module):
+    "Core encoder is a stack of N layers"
+
+    def __init__(self, layer, N):
+        super(Encoder, self).__init__()
+        self.layers = clones(layer, N)
+        self.norm = BatchNorm1d(layer.size)
+
+    def forward(self, x):
+        "Pass the input (and mask) through each layer in turn."
+        for layer in self.layers:
+            x = layer(x)
+
+        return self.norm(x.transpose(1, 2)).transpose(1, 2)
+
+
+class SublayerConnection(nn.Module):
+    """
+    A residual connection followed by a layer norm.
+    Note for code simplicity the norm is first as opposed to last.
+    """
+
+    def __init__(self, size, dropout):
+        super(SublayerConnection, self).__init__()
+        self.norm = BatchNorm1d(size)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, sublayer):
+        "Apply residual connection to any sublayer with the same size."
+        return x + self.dropout(sublayer(self.norm(x.transpose(1, 2)).transpose(1, 2)))
+
+
+class EncoderLayer(nn.Module):
+    "Encoder is made up of self-attn and feed forward (defined below)"
+
+    def __init__(self, size, self_attn, feed_forward, dropout):
+        super(EncoderLayer, self).__init__()
+        self.self_attn = self_attn
+        self.feed_forward = feed_forward
+        self.sublayer = clones(SublayerConnection(size, dropout), 2)
+        self.size = size
+
+    def forward(self, x):
+        "Follow Figure 1 (left) for connections."
+        x = self.sublayer[0](x, lambda x: self.self_attn(x))
+        return self.sublayer[1](x, self.feed_forward)
+
+
+class MultiHeadedAttention(nn.Module):
+    def __init__(self, h, d_model, attn, seq_len, dropout=0.1):
+        "Take in model size and number of heads."
+        super(MultiHeadedAttention, self).__init__()
+        assert d_model % h == 0
+        # We assume d_v always equals d_k
+        self.d_k = d_model // h
+        self.h = h
+        self.linear = nn.Linear(d_model, d_model)
+        self.attn = attn
+        self.dropout = nn.Dropout(p=dropout)
+
+    def forward(self, x):
+        "Implements Figure 2"
+        x = self.attn(x)
+        return self.linear(x)
+
+
+class PositionwiseFeedForward(nn.Module):
+    "Implements FFN equation."
+
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super(PositionwiseFeedForward, self).__init__()
+        self.w_1 = nn.Linear(d_model, d_ff)
+        self.w_2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        return self.w_2(self.dropout(self.w_1(x).relu()))
+
+
+def find_num_patches(window, patch_size, stride):
+    return (window - patch_size) // stride + 2
+
+
+def make_model(
+    seq_len,
+    N=3,
+    d_model=128,
+    d_ff=512,
+    h=16,
+    dropout=0.2,
+    device="cpu",
+):
+    "Helper: Construct a model from hyperparameters."
+    c = copy.deepcopy
+    attn = RelativeGlobalAttention(d_model, h, seq_len, dropout)
+
+    attn = MultiHeadedAttention(h, d_model, attn, seq_len, dropout).to(device)
+    ff = PositionwiseFeedForward(d_model, d_ff, dropout).to(device)
+    model = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N).to(device)
+
+    # This was important from their code.
+    # Initialize parameters with Glorot / fan_avg.
+    for p in model.parameters():
+        if p.dim() > 1:
+            nn.init.xavier_uniform_(p)
+    return model
+
+
+def create_patch(y, patch_size, stride):
+    # [bs x seq_len]
+    y_next = y.clone()
+    # append the last column stride times
+    y_next = torch.cat([y_next, y[:, -1].unsqueeze(1).repeat(1, stride)], dim=1)
+    # split into patches
+    y_next = y_next.unfold(1, patch_size, stride).to(y.device)
+    return y_next  # [bs  x num_patch  x patch_len]
+
+
+class MTST_layer(nn.Module):
+    def __init__(self, patch_sizes, num_patches, strides, output_size, device):
+        super().__init__()
+        self.trans_layers = [
+            make_model(seq_len=seq_len, d_model=patch_size, device=device)
+            for (seq_len, patch_size) in zip(num_patches, patch_sizes)
+        ]
+        patch_sizes = np.array(patch_sizes)
+        num_patches = np.array(num_patches)
+        strides = np.array(strides)
+        flatten_size = (patch_sizes * num_patches).sum()
+        self.ff = Linear(flatten_size, output_size).to(device)
+        self.patch_sizes = patch_sizes
+        self.output_size = output_size
+        self.num_patches = num_patches
+        self.strides = strides
+
+    def forward(self, y):
+        outputs = []
+        for i in range(len(self.patch_sizes)):
+            y_i = create_patch(y, self.patch_sizes[i], self.strides[i])
+            # [bs x num_patch x patch_len]
+            y_i = self.trans_layers[i](y_i)
+            y_i = y_i.flatten(start_dim=1)
+            outputs.append(y_i)
+            # flatten the dims except first
+        outputs = torch.column_stack(outputs)
+        y = self.ff(outputs)
+        return y
 
 
 class RelativeGlobalAttention(nn.Module):
@@ -96,190 +250,38 @@ class RelativeGlobalAttention(nn.Module):
         return Srel
 
 
-def clones(module, N):
-    "Produce N identical layers."
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
-
-class Encoder(nn.Module):
-    "Core encoder is a stack of N layers"
-
-    def __init__(self, layer, N):
-        super(Encoder, self).__init__()
-        self.layers = clones(layer, N)
-        self.norm = LayerNorm(layer.size)
-
-    def forward(self, x):
-        "Pass the input (and mask) through each layer in turn."
-        for layer in self.layers:
-            x = layer(x)
-        return self.norm(x)
-
-
-class LayerNorm(nn.Module):
-    "Construct a layernorm module (See citation for details)."
-
-    def __init__(self, features, eps=1e-6):
-        super(LayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(features))
-        self.b_2 = nn.Parameter(torch.zeros(features))
-        self.eps = eps
-
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
-
-
-class SublayerConnection(nn.Module):
-    """
-    A residual connection followed by a layer norm.
-    Note for code simplicity the norm is first as opposed to last.
-    """
-
-    def __init__(self, size, dropout):
-        super(SublayerConnection, self).__init__()
-        self.norm = LayerNorm(size)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, sublayer):
-        "Apply residual connection to any sublayer with the same size."
-        return x + self.dropout(sublayer(self.norm(x)))
-
-
-class EncoderLayer(nn.Module):
-    "Encoder is made up of self-attn and feed forward (defined below)"
-
-    def __init__(self, size, self_attn, feed_forward, dropout):
-        super(EncoderLayer, self).__init__()
-        self.self_attn = self_attn
-        self.feed_forward = feed_forward
-        self.sublayer = clones(SublayerConnection(size, dropout), 2)
-        self.size = size
-
-    def forward(self, x):
-        "Follow Figure 1 (left) for connections."
-        x = self.sublayer[0](x, lambda x: self.self_attn(x))
-        return self.sublayer[1](x, self.feed_forward)
-
-
-class MultiHeadedAttention(nn.Module):
-    def __init__(self, h, d_model, attn, seq_len, dropout=0.1):
-        "Take in model size and number of heads."
-        super(MultiHeadedAttention, self).__init__()
-        assert d_model % h == 0
-        # We assume d_v always equals d_k
-        self.d_k = d_model // h
-        self.h = h
-        self.linear = nn.Linear(d_model, d_model)
-        self.attn = attn(d_model, h, seq_len, dropout)
-        self.dropout = nn.Dropout(p=dropout)
-
-    def forward(self, x):
-        "Implements Figure 2"
-        x = self.attn(x)
-        return self.linear(x)
-
-
-class PositionwiseFeedForward(nn.Module):
-    "Implements FFN equation."
-
-    def __init__(self, d_model, d_ff, dropout=0.1):
-        super(PositionwiseFeedForward, self).__init__()
-        self.w_1 = nn.Linear(d_model, d_ff)
-        self.w_2 = nn.Linear(d_ff, d_model)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x):
-        return self.w_2(self.dropout(self.w_1(x).relu()))
-
-
-def find_num_patches(window, patch_size, stride):
-    return (window - patch_size) // stride + 2
-
-
-def make_model(
-    seq_len, attn=RelativeGlobalAttention, N=3, d_model=128, d_ff=512, h=16, dropout=0.2
-):
-    "Helper: Construct a model from hyperparameters."
-    c = copy.deepcopy
-    attn = MultiHeadedAttention(h, d_model, attn, seq_len, dropout)
-    ff = PositionwiseFeedForward(d_model, d_ff, dropout)
-    model = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N)
-
-    # This was important from their code.
-    # Initialize parameters with Glorot / fan_avg.
-    for p in model.parameters():
-        if p.dim() > 1:
-            nn.init.xavier_uniform_(p)
-    return model
-
-
-def create_patch(y, patch_size, stride):
-    # [bs x seq_len]
-    y_next = y.clone()
-    # append the last column stride times
-    y_next = torch.cat([y_next, y[:, -1].unsqueeze(1).repeat(1, stride)], dim=1)
-    # split into patches
-    y_next = y_next.unfold(1, patch_size, stride).to(y.device)
-    return y_next  # [bs  x num_patch  x patch_len]
-
-
-class MTST_layer(nn.Module):
-    def __init__(self, patch_sizes, num_patches, strides, output_size):
-        super().__init__()
-        self.trans_layers = [
-            make_model(seq_len=seq_len, d_model=patch_size)
-            for (seq_len, patch_size) in zip(num_patches, patch_sizes)
-        ]
-        patch_sizes = np.array(patch_sizes)
-        num_patches = np.array(num_patches)
-        strides = np.array(strides)
-        flatten_size = (patch_sizes * num_patches).sum()
-        self.ff = Linear(flatten_size, output_size)
-        self.patch_sizes = patch_sizes
-        self.output_size = output_size
-        self.num_patches = num_patches
-        self.strides = strides
-
-    def forward(self, y):
-        outputs = []
-        for i in range(len(self.patch_sizes)):
-            y_i = create_patch(y, self.patch_sizes[i], self.strides[i])
-            # [bs x num_patch x patch_len]
-            y_i = self.trans_layers[i](y_i)
-            y_i = y_i.flatten(start_dim=1)
-            outputs.append(y_i)
-            # flatten the dims except first
-        outputs = torch.cat(outputs)
-        y = self.ff(outputs)
-        return y
-
-
 class MTST(nn.Module):
     def __init__(
         self,
         input_size: int,
         seq_len: int,
         node_index: int,
-        patch_sizes: List[int] = [16],
-        strides: List[int] = [1],
+        patch_sizes: List[int] = [16, 32],
+        strides: List[int] = [1, 1],
         num_heads: int = 16,
         dropout: float = 0.2,
         hidden_size: int = 512,
-        n_layers: int = 3,
+        n_layers: int = 1,
     ):
         super().__init__()
 
         self.n_layers = n_layers
         self.node_index = node_index
+        self.device = "cuda"
 
         self.mask_emb = nn.Embedding(1, 1)
         num_patches = [
             find_num_patches(seq_len, patch_sizes[i], strides[i])
             for i in range(len(patch_sizes))
         ]
-        self.layer = MTST_layer(patch_sizes, num_patches, strides, seq_len)
+        self.layers = nn.ModuleList(
+            [
+                MTST_layer(
+                    patch_sizes, num_patches, strides, seq_len, device=self.device
+                )
+                for _ in range(n_layers)
+            ]
+        )
 
     def forward(
         self,
@@ -293,31 +295,43 @@ class MTST(nn.Module):
     ):
         x = x.squeeze(-1)[..., self.node_index]
         mask = mask.squeeze(-1)[..., self.node_index]
-        u, edge_index
-        ic(x.shape)
 
         # Whiten missing values
         x = x * mask
 
         h = torch.where(mask.bool(), x, x + self.mask_emb.weight)
+        for layer in self.layers:
+            h = layer(h)
 
-        return self.layer(h)
+        return h
 
     @staticmethod
     def add_model_specific_args(parser):
         parser.add_argument("--seq-len", type=int)
         parser.add_argument("--node-index", type=int)
-        parser.add_argument(
-            "--hidden-size",
-            type=int,
-            default=32,
-            choices=[32, 64, 128, 256],
-        )
-        parser.add_argument("--u-size", type=int, default=None)
-        parser.add_argument("--output-size", type=int, default=None)
-        parser.add_argument("--temporal-self-attention", type=bool, default=True)
-        parser.add_argument("--reweight", type=str, default="softmax")
-        parser.add_argument("--n-layers", type=int, default=4)
-        parser.add_argument("--eta", type=int, default=3)
-        parser.add_argument("--message-layers", type=int, default=1)
+
         return parser
+
+
+if __name__ == "__main__":
+    batch_size = 10
+    seq_len = 512
+    model = make_model(seq_len)
+
+    patch_sizes = [16]
+    strides = [1]
+    num_patches = [
+        find_num_patches(seq_len, patch_sizes[i], strides[i])
+        for i in range(len(patch_sizes))
+    ]
+
+    patch_sizes = np.array(patch_sizes)
+    num_patches = np.array(num_patches)
+    strides = np.array(strides)
+    output_size = seq_len
+
+    d_model = 128
+    y = torch.rand(batch_size, seq_len, d_model)
+    y = model(y)
+
+    print(y.shape)

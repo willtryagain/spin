@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -A research
-#SBATCH -n 40
+#SBATCH -n 38
 #SBATCH --gres=gpu:4
 #SBATCH --mem-per-cpu=2048
 #SBATCH --output=op_file.txt
@@ -30,4 +30,4 @@ rsync -avz aman.atman@ada.iiit.ac.in:/home2/aman.atman/spin/ --exclude=logs ./
 eval "$(conda shell.bash hook)"
 conda activate spin
 
-python -m experiments.run_imputation --config imputation/spin_h.yaml --dataset-name la_point
+python -m experiments.run_imputation --config imputation/mtst.yaml --dataset-name la_point

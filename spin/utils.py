@@ -1,19 +1,31 @@
 from typing import Optional
 
 import numpy as np
+import torch.nn as nn
 from numpy.random import choice
 from torch_geometric.utils import k_hop_subgraph
 from tsl.data.data import Data as Batch
 from tsl.ops.connectivity import weighted_degree
 
 
-def k_hop_subgraph_sampler(batch: Batch, k: int, num_nodes: int,
-                           max_edges: Optional[int] = None,
-                           cut_edges_uniformly: bool = False):
+
+def k_hop_subgraph_sampler(
+    batch: Batch,
+    k: int,
+    num_nodes: int,
+    max_edges: Optional[int] = None,
+    cut_edges_uniformly: bool = False,
+):
     N = batch.x.size(-2)
     roots = choice(np.arange(N), num_nodes, replace=False).tolist()
-    subgraph = k_hop_subgraph(roots, k, batch.edge_index, relabel_nodes=True,
-                              num_nodes=N, flow='target_to_source')
+    subgraph = k_hop_subgraph(
+        roots,
+        k,
+        batch.edge_index,
+        relabel_nodes=True,
+        num_nodes=N,
+        flow="target_to_source",
+    )
     node_idx, edge_index, node_map, edge_mask = subgraph
 
     col = edge_index[1]
@@ -28,11 +40,11 @@ def k_hop_subgraph_sampler(batch: Batch, k: int, num_nodes: int,
     else:
         keep_edges = slice(None)
     for key, pattern in batch.pattern.items():
-        if key in batch.target or key == 'eval_mask':
+        if key in batch.target or key == "eval_mask":
             batch[key] = batch[key][..., roots, :]
-        elif 'n' in pattern:
+        elif "n" in pattern:
             batch[key] = batch[key][..., node_idx, :]
-        elif 'e' in pattern and key != 'edge_index':
+        elif "e" in pattern and key != "edge_index":
             batch[key] = batch[key][edge_mask][keep_edges]
     batch.input.node_index = node_idx  # index of nodes in subgraph
     batch.input.target_nodes = node_map  # index of roots in subgraph

@@ -28,8 +28,8 @@ from tsl.utils.parser_utils import ArgParser
 print(os.getcwd())
 
 from spin.baselines import TransformerModel
-from spin.imputers import SPINImputer, MTSTImputer
-from spin.models import SPINHierarchicalModel, SPINModel, MTST
+from spin.imputers import MTSTImputer, SPINImputer
+from spin.models import MTST, SPINHierarchicalModel, SPINModel
 from spin.scheduler import CosineSchedulerWithRestarts
 
 
@@ -160,6 +160,8 @@ def run_experiment(args):
     if args.seed < 0:
         args.seed = np.random.randint(1e9)
     torch.set_num_threads(1)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
     pl.seed_everything(args.seed)
 
     # script flags
