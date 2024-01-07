@@ -259,11 +259,35 @@ num_patches = [
 ]
 
 patch_sizes = np.array(patch_sizes)
+
 num_patches = np.array(num_patches)
+ic(num_patches)
 strides = np.array(strides)
 output_size = seq_len
 
 y = torch.rand(batch_size, seq_len)
 layer = MTST_layer(patch_sizes, num_patches, strides, output_size)
+attn = (
+    layer.trans_layers[0]
+    ._modules["layers"]
+    ._modules["0"]
+    ._modules["self_attn"]
+    ._modules["attn"]
+    ._buffers["mask"]
+)
+attn = torch.zeros_like(attn)
+layer.trans_layers[0]._modules["layers"]._modules["0"]._modules["self_attn"]._modules[
+    "attn"
+]._buffers["mask"] = attn
+ic(attn.shape)
+ic(
+    layer.trans_layers[0]
+    ._modules["layers"]
+    ._modules["0"]
+    ._modules["self_attn"]
+    ._modules["attn"]
+    ._buffers["mask"]
+)
+
 y = layer(y)
 print(y.shape)

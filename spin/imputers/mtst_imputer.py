@@ -22,6 +22,7 @@ class MTSTImputer(Imputer):
         scheduler_class: Optional = None,
         scheduler_kwargs: Optional[Mapping] = None,
         node_index: int = 0,
+        scaler=None,
     ):
         super().__init__(
             model_class=model_class,
@@ -36,12 +37,16 @@ class MTSTImputer(Imputer):
             scheduler_class=scheduler_class,
             scheduler_kwargs=scheduler_kwargs,
         )
+        ic(model_kwargs)
         self.node_index = node_index
+        self.scaler = scaler
 
     def on_after_batch_transfer(self, batch, dataloader_idx):
         return super().on_after_batch_transfer(batch, dataloader_idx)
 
     def training_step(self, batch, batch_idx):
+        batch.y = self.scaler.transform(batch.y.cpu()).cuda()
+        ic(batch.y.shape)
         injected_missing = batch.original_mask - batch.mask
         if "target_nodes" in batch:
             injected_missing = injected_missing[..., batch.target_nodes, :]
@@ -82,6 +87,7 @@ class MTSTImputer(Imputer):
         return y_hat.detach(), y, loss
 
     def validation_step(self, batch, batch_idx):
+        batch.y = self.scaler.transform(batch.y.cpu()).cuda()
         # batch.input.target_mask = batch.eval_mask
         mask = batch.eval_mask.squeeze(-1)[..., self.node_index]
         y_hat, y, val_loss = self.shared_step(batch, mask)
@@ -91,6 +97,7 @@ class MTSTImputer(Imputer):
         return val_loss
 
     def test_step(self, batch, batch_idx):
+        batch.y = self.scaler.transform(batch.y.cpu()).cuda()
         # batch.input.target_mask = batch.eval_mask
         # Compute outputs and rescale
         y_hat = self.predict_batch(batch, preprocess=False, postprocess=True)

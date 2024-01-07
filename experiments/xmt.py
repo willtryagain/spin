@@ -30,7 +30,7 @@ print(os.getcwd())
 from spin.baselines import TransformerModel
 from spin.imputers import MTSTImputer, SPINImputer
 from spin.models import MTST, SPINHierarchicalModel, SPINModel
-from spin.scheduler import CosineSchedulerWithRestarts, CycScheduler
+from spin.scheduler import CosineSchedulerWithRestarts
 
 
 def get_model_classes(model_str):
@@ -101,13 +101,6 @@ def get_scheduler(scheduler_name: str = None, args=None):
             linear_decay=0.67,
             num_training_steps=args.epochs,
             num_cycles=args.epochs // 100,
-        )
-    elif scheduler_name == "cyc":
-        scheduler_class = CycScheduler
-        scheduler_kwargs = dict(
-            max_lr=1e-3,
-            epochs=args.epochs,
-            steps_per_epoch=args.epochs * 300,
         )
     else:
         raise ValueError(f"Invalid scheduler name: {scheduler_name}.")
@@ -272,21 +265,8 @@ def run_experiment(args):
 
     scheduler_class, scheduler_kwargs = get_scheduler(args.lr_scheduler, args)
 
-    # setup imputer
-    imputer_kwargs = parser_utils.filter_argparse_args(
-        args, imputer_class, return_dict=True
-    )
-    imputer = imputer_class(
-        model_class=model_cls,
-        model_kwargs=model_kwargs,
-        optim_class=torch.optim.Adam,
-        optim_kwargs={"lr": args.lr, "weight_decay": args.l2_reg},
-        loss_fn=loss_fn,
-        metrics=metrics,
-        scheduler_class=scheduler_class,
-        scheduler_kwargs=scheduler_kwargs,
-        scaler=scalers["data"],
-        **imputer_kwargs,
+    imputer = SPINImputer.load_from_checkpoint(
+        "log/la_point/spin_h/20240105T115611_777761720/epoch=201-step=60599.ckpt"
     )
 
     ########################################
@@ -322,21 +302,11 @@ def run_experiment(args):
         callbacks=[early_stop_callback, checkpoint_callback],
     )
 
-    trainer.fit(
-        imputer,
-        train_dataloaders=dm.train_dataloader(),
-        val_dataloaders=dm.val_dataloader(batch_size=args.batch_inference),
-    )
-
     ########################################
     # testing                              #
     ########################################
 
-    imputer.load_model(checkpoint_callback.best_model_path)
     imputer.freeze()
-    trainer.test(
-        imputer, dataloaders=dm.test_dataloader(batch_size=args.batch_inference)
-    )
 
     output = trainer.predict(
         imputer, dataloaders=dm.test_dataloader(batch_size=args.batch_inference)

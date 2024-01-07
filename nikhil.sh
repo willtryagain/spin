@@ -13,18 +13,18 @@ module add cuda/10.0
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 cd /scratch/
-if [ ! -d aman.atman ]; then
-    mkdir aman.atman
+if [ ! -d nikhil.lamba ]; then
+    mkdir nikhil.lamba
 fi
 
-cd aman.atman/
+cd nikhil.lamba/
 if [ ! -d tr ]; then
     mkdir spin
 fi
 
 cd spin/
 # rm -r *
-rsync -avz aman.atman@ada.iiit.ac.in:/home2/aman.atman/spin/ --exclude=logs ./
+rsync -avz nikhil.lamba@ada.iiit.ac.in:/home2/nikhil.lamba/aman/spin/ --exclude=logs ./
 
 # Activate the conda environment
 eval "$(conda shell.bash hook)"

@@ -2,7 +2,17 @@ import math
 
 import torch
 from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LambdaLR, _LRScheduler
+from torch.optim.lr_scheduler import LambdaLR, OneCycleLR, _LRScheduler
+
+
+class CycScheduler(OneCycleLR, _LRScheduler):
+    def __init__(
+        self, optimizer: Optimizer, max_lr: float, epochs: int, steps_per_epoch: int
+    ):
+        self.max_lr = max_lr
+        self.epochs = epochs
+        self.steps_per_epoch = steps_per_epoch
+        super(CycScheduler, self).__init__(optimizer, max_lr, epochs, steps_per_epoch)
 
 
 class CosineSchedulerWithRestarts(LambdaLR, _LRScheduler):
@@ -62,4 +72,5 @@ if __name__ == "__main__":
     scheduler = CosineSchedulerWithRestarts(
         optimizer=optimizer, num_warmup_steps=100, num_training_steps=1000
     )
+    scheduler = CycScheduler(optimizer=optimizer, max_lr=1e-3, epochs=100, steps_per_epoch=100)
     print(scheduler.get_last_lr())

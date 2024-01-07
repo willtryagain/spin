@@ -27,6 +27,7 @@ class SPINImputer(Imputer):
         metrics: Optional[Mapping[str, Metric]] = None,
         scheduler_class: Optional = None,
         scheduler_kwargs: Optional[Mapping] = None,
+        scaler=None,
     ):
         super(SPINImputer, self).__init__(
             model_class=model_class,
@@ -45,6 +46,7 @@ class SPINImputer(Imputer):
         self.n_hops = n_hops
         self.max_edges_subgraph = max_edges_subgraph
         self.cut_edges_uniformly = cut_edges_uniformly
+        self.scaler = scaler
 
     def on_after_batch_transfer(self, batch, dataloader_idx):
         if self.training and self.n_roots is not None:
@@ -58,8 +60,7 @@ class SPINImputer(Imputer):
         return super(SPINImputer, self).on_after_batch_transfer(batch, dataloader_idx)
 
     def training_step(self, batch, batch_idx):
-        ic(batch)
-
+        batch.y = self.scaler.transform(batch.y.cpu()).cuda()
         injected_missing = batch.original_mask - batch.mask
         if "target_nodes" in batch:
             injected_missing = injected_missing[..., batch.target_nodes, :]
@@ -76,6 +77,8 @@ class SPINImputer(Imputer):
 
     def validation_step(self, batch, batch_idx):
         # batch.input.target_mask = batch.eval_mask
+
+        batch.y = self.scaler.transform(batch.y.cpu()).cuda()
         y_hat, y, val_loss = self.shared_step(batch, batch.eval_mask)
 
         # Logging
@@ -87,6 +90,7 @@ class SPINImputer(Imputer):
     def test_step(self, batch, batch_idx):
         # batch.input.target_mask = batch.eval_mask
         # Compute outputs and rescale
+        batch.y = self.scaler.transform(batch.y.cpu()).cuda()
         y_hat = self.predict_batch(batch, preprocess=False, postprocess=True)
 
         if isinstance(y_hat, (list, tuple)):
@@ -103,7 +107,7 @@ class SPINImputer(Imputer):
 
     @staticmethod
     def add_argparse_args(parser, **kwargs):
-        parser.add_argument("--scale-target", type=bool, default=False)
+        parser = Predictor.add_argparse_args(parser)
         parser.add_argument("--whiten-prob", type=float, default=0.05)
         parser.add_argument("--prediction-loss-weight", type=float, default=1.0)
         parser.add_argument("--n-roots-subgraph", type=int, default=None)

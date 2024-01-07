@@ -15,6 +15,8 @@ from torch_geometric.typing import List, OptTensor, Union
 from tsl.nn.blocks.encoders import MLP
 from tsl.nn.layers import PositionalEncoding
 
+from ..layers import RelativeGlobalAttention
+
 
 def clones(module, N):
     "Produce N identical layers."
@@ -108,7 +110,7 @@ def make_model(
     seq_len,
     N=3,
     d_model=128,
-    d_ff=512,
+    d_ff=336,
     h=16,
     dropout=0.2,
     device="cpu",
@@ -139,11 +141,34 @@ def create_patch(y, patch_size, stride):
     return y_next  # [bs  x num_patch  x patch_len]
 
 
+def find_smallest_divisble_num(num, divisor):
+    return num - (num % divisor)
+
+
 class MTST_layer(nn.Module):
-    def __init__(self, patch_sizes, num_patches, strides, output_size, device):
+    def __init__(self, output_size, num_heads, N, dropout, device):
         super().__init__()
+        strides = [1, 4, 8]
+        patch_sizes = [output_size // 4, output_size // 8, output_size // 16]
+        patch_sizes = [
+            find_smallest_divisble_num(patch_size, num_heads)
+            for patch_size in patch_sizes
+        ]
+        num_patches = [
+            find_num_patches(output_size, patch_sizes[i], strides[i])
+            for i in range(len(patch_sizes))
+        ]
+        ic(num_patches)
         self.trans_layers = [
-            make_model(seq_len=seq_len, d_model=patch_size, device=device)
+            make_model(
+                N=N,
+                seq_len=seq_len,
+                d_model=patch_size,
+                h=num_heads,
+                d_ff=patch_size // 4,
+                dropout=dropout,
+                device=device,
+            )
             for (seq_len, patch_size) in zip(num_patches, patch_sizes)
         ]
         patch_sizes = np.array(patch_sizes)
@@ -170,118 +195,43 @@ class MTST_layer(nn.Module):
         return y
 
 
-class RelativeGlobalAttention(nn.Module):
-    def __init__(self, d_model, num_heads, max_len=1024, dropout=0.1):
-        super().__init__()
-        d_head, remainder = divmod(d_model, num_heads)
-        if remainder:
-            raise ValueError("incompatible `d_model` and `num_heads`")
-        self.max_len = max_len
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.key = nn.Linear(d_model, d_model)
-        self.value = nn.Linear(d_model, d_model)
-        self.query = nn.Linear(d_model, d_model)
-        self.dropout = nn.Dropout(dropout)
-        self.Er = nn.Parameter(torch.randn(max_len, d_head))
-        self.register_buffer(
-            "mask", torch.ones(max_len, max_len).unsqueeze(0).unsqueeze(0)
-        )
-        # self.mask.shape = (1, 1, max_len, max_len)
-
-    def forward(self, x):
-        # x.shape == (batch_size, seq_len, d_model)
-        batch_size, seq_len, _ = x.shape
-
-        if seq_len > self.max_len:
-            raise ValueError("sequence length exceeds model capacity")
-
-        k_t = (
-            self.key(x)
-            .reshape(batch_size, seq_len, self.num_heads, -1)
-            .permute(0, 2, 3, 1)
-        )
-        # k_t.shape = (batch_size, num_heads, d_head, seq_len)
-        v = (
-            self.value(x)
-            .reshape(batch_size, seq_len, self.num_heads, -1)
-            .transpose(1, 2)
-        )
-        q = (
-            self.query(x)
-            .reshape(batch_size, seq_len, self.num_heads, -1)
-            .transpose(1, 2)
-        )
-        # shape = (batch_size, num_heads, seq_len, d_head)
-
-        start = self.max_len - seq_len
-        Er_t = self.Er[start:, :].transpose(0, 1)
-        # Er_t.shape = (d_head, seq_len)
-        QEr = torch.matmul(q, Er_t)
-        # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
-        Srel = self.skew(QEr)
-        # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
-
-        QK_t = torch.matmul(q, k_t)
-        # QK_t.shape = (batch_size, num_heads, seq_len, seq_len)
-        attn = (QK_t + Srel) / math.sqrt(q.size(-1))
-        mask = self.mask[:, :, :seq_len, :seq_len]
-        # mask.shape = (1, 1, seq_len, seq_len)
-        attn = attn.masked_fill(mask == 0, float("-inf"))
-        # attn.shape = (batch_size, num_heads, seq_len, seq_len)
-        attn = F.softmax(attn, dim=-1)
-        out = torch.matmul(attn, v)
-        # out.shape = (batch_size, num_heads, seq_len, d_head)
-        out = out.transpose(1, 2)
-        # out.shape == (batch_size, seq_len, num_heads, d_head)
-        out = out.reshape(batch_size, seq_len, -1)
-        # out.shape == (batch_size, seq_len, d_model)
-        return self.dropout(out)
-
-    def skew(self, QEr):
-        # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
-        padded = F.pad(QEr, (1, 0))
-        # padded.shape = (batch_size, num_heads, seq_len, 1 + seq_len)
-        batch_size, num_heads, num_rows, num_cols = padded.shape
-        reshaped = padded.reshape(batch_size, num_heads, num_cols, num_rows)
-        # reshaped.size = (batch_size, num_heads, 1 + seq_len, seq_len)
-        Srel = reshaped[:, :, 1:, :]
-        # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
-        return Srel
-
-
 class MTST(nn.Module):
     def __init__(
         self,
         input_size: int,
         seq_len: int,
         node_index: int,
-        patch_sizes: List[int] = [16, 32],
-        strides: List[int] = [1, 1],
-        num_heads: int = 16,
-        dropout: float = 0.2,
-        hidden_size: int = 512,
-        n_layers: int = 1,
+        patch_sizes: List[int] = [8, 32, 96],
+        strides: List[int] = [12, 8, 4],
+        num_heads: int = 2,
+        dropout: float = 0.3,
+        n_layers: int = 8,
+        num_encoders: int = 2,
     ):
         super().__init__()
+        # print all arguments
 
         self.n_layers = n_layers
         self.node_index = node_index
         self.device = "cuda"
 
-        self.mask_emb = nn.Embedding(1, 1)
-        num_patches = [
-            find_num_patches(seq_len, patch_sizes[i], strides[i])
-            for i in range(len(patch_sizes))
-        ]
-        self.layers = nn.ModuleList(
-            [
+        self.mask_emb = nn.Embedding(n_layers, 1)
+
+        self.layers = nn.ModuleList([])
+        for i in range(n_layers):
+            self.layers.append(
                 MTST_layer(
-                    patch_sizes, num_patches, strides, seq_len, device=self.device
+                    seq_len // pow(2, i),
+                    num_heads,
+                    num_encoders,
+                    dropout,
+                    self.device,
                 )
-                for _ in range(n_layers)
-            ]
-        )
+            )
+            self.layers.append(
+                nn.Linear(seq_len // pow(2, i), seq_len // pow(2, i + 1))
+            )
+        self.layers.append(nn.Linear(seq_len // pow(2, n_layers), seq_len))
 
     def forward(
         self,
@@ -293,15 +243,22 @@ class MTST(nn.Module):
         node_index: OptTensor = None,
         target_nodes: OptTensor = None,
     ):
+        ic(x.shape)
         x = x.squeeze(-1)[..., self.node_index]
         mask = mask.squeeze(-1)[..., self.node_index]
+        # x - [B x L]
+        ic(x.shape)
 
         # Whiten missing values
         x = x * mask
 
-        h = torch.where(mask.bool(), x, x + self.mask_emb.weight)
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
+            h = torch.where(
+                mask.bool(), x, x + self.mask_emb(torch.LongTensor([i]).cuda())[0]
+            )
+
             h = layer(h)
+            ic(h.shape)
 
         return h
 
@@ -309,6 +266,8 @@ class MTST(nn.Module):
     def add_model_specific_args(parser):
         parser.add_argument("--seq-len", type=int)
         parser.add_argument("--node-index", type=int)
+        parser.add_argument("--n-layers", type=int, default=8)
+        parser.add_argument("--num-encoders", type=int, default=3)
 
         return parser
 
