@@ -1,12 +1,10 @@
 import copy
+import math
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from icecream import ic
 from torch.nn import BatchNorm1d
-import numpy as np
-
 
 
 def clones(module, N):
@@ -43,9 +41,7 @@ class SublayerConnection(nn.Module):
 
     def forward(self, x, sublayer):
         "Apply residual connection to any sublayer with the same size."
-        return x + self.dropout(
-            sublayer(self.norm(x.transpose(1, 2)).transpose(1, 2))
-        )
+        return x + self.dropout(sublayer(self.norm(x.transpose(1, 2)).transpose(1, 2)))
 
 
 class EncoderLayer(nn.Module):
@@ -95,22 +91,20 @@ class PositionwiseFeedForward(nn.Module):
         return self.w_2(self.dropout(self.w_1(x).relu()))
 
 
-def find_num_patches(window, patch_size, stride):
-    return (window - patch_size) // stride + 2
-
 
 def make_model(
     seq_len,
     N=3,
     d_model=128,
-    d_ff=512,
+    d_ff=336,
     h=16,
     dropout=0.2,
+    attn=None,
     device="cpu",
 ):
     "Helper: Construct a model from hyperparameters."
     c = copy.deepcopy
-    attn = RelativeGlobalAttention(d_model, h, seq_len, dropout)
+    attn = attn(d_model, h, seq_len, dropout)
 
     attn = MultiHeadedAttention(h, d_model, attn, seq_len, dropout).to(device)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout).to(device)
@@ -122,5 +116,3 @@ def make_model(
         if p.dim() > 1:
             nn.init.xavier_uniform_(p)
     return model
-
-
