@@ -28,7 +28,6 @@ class RelativeGlobalAttention(nn.Module):
     def forward(self, x):
         # x.shape == (batch_size, seq_len, d_model)
         batch_size, seq_len, _ = x.shape
-        ic(seq_len, self.max_len)
 
         if seq_len > self.max_len:
             raise ValueError("sequence length exceeds model capacity")

@@ -301,8 +301,8 @@ def run_experiment(args):
         dirpath=logdir, save_top_k=1, monitor="val_mae", mode="min"
     )
 
-    tb_logger = TensorBoardLogger(logdir, name="model")
-    wandb_logger = WandbLogger(name="SPINH-LA", log_model="all")
+    # tb_logger = TensorBoardLogger(logdir, name="model")
+    wandb_logger = WandbLogger(name="SPINH-LA", log_model=False)
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,

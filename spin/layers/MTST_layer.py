@@ -17,39 +17,42 @@ def create_patch(y, patch_size, stride):
     y_next = y.clone()
     # append the last column stride times
     y_next = torch.cat([y_next, y[:, -1].unsqueeze(1).repeat(1, stride)], dim=1)
+    # ic(y_next.shape)
+    # ic(patch_size * stride, patch_size, stride)
+
     # split into patches
     y_next = y_next.unfold(1, patch_size, stride).to(y.device)
     return y_next  # [bs  x num_patch  x patch_len]
 
 
 def find_smallest_divisble_num(num, divisor):
-    return num - (num % divisor)
+    return (num - (num % divisor)) + divisor
 
 
 class MTST_layer(nn.Module):
-    def __init__(self, output_size, num_heads, N, dropout, device):
+    def __init__(
+        self, input_size, num_heads, num_encoders, dropout, strides, patch_sizes, device
+    ):
         super().__init__()
-        strides = [1, 4, 8]
-        patch_sizes = [output_size // 4, output_size // 8, output_size // 16]
+
         patch_sizes = [
             find_smallest_divisble_num(patch_size, num_heads)
             for patch_size in patch_sizes
         ]
         num_patches = [
-            find_num_patches(output_size, patch_sizes[i], strides[i])
+            find_num_patches(input_size, patch_sizes[i], strides[i])
             for i in range(len(patch_sizes))
         ]
-        ic(num_patches)
         self.trans_layers = [
             make_model(
-                N=N,
-                seq_len=seq_len,
-                d_model=patch_size,
-                h=num_heads,
-                d_ff=patch_size // 4,
-                dropout=dropout,
-                attn=RelativeGlobalAttention,
-                device=device,
+                seq_len,
+                num_encoders,
+                patch_size,
+                patch_size // 4,
+                num_heads,
+                dropout,
+                RelativeGlobalAttention,
+                device,
             )
             for (seq_len, patch_size) in zip(num_patches, patch_sizes)
         ]
@@ -57,9 +60,9 @@ class MTST_layer(nn.Module):
         num_patches = np.array(num_patches)
         strides = np.array(strides)
         flatten_size = (patch_sizes * num_patches).sum()
-        self.ff = Linear(flatten_size, output_size).to(device)
+        self.ff = Linear(flatten_size, input_size).to(device)
         self.patch_sizes = patch_sizes
-        self.output_size = output_size
+        self.input_size = input_size
         self.num_patches = num_patches
         self.strides = strides
 

@@ -46,7 +46,6 @@ class MTSTImputer(Imputer):
 
     def training_step(self, batch, batch_idx):
         batch.y = self.scaler.transform(batch.y.cpu()).cuda()
-        ic(batch.y.shape)
         injected_missing = batch.original_mask - batch.mask
         if "target_nodes" in batch:
             injected_missing = injected_missing[..., batch.target_nodes, :]
