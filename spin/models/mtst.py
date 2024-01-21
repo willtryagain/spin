@@ -95,10 +95,8 @@ class MTST(nn.Module):
             )
         )
 
-        self.mask_emb = nn.Embedding(4, 1)
-
-    def get_embedding(self, index):
-        return self.mask_emb(torch.LongTensor([index]))[0][0]
+        self.missing_emb = nn.Parameter(torch.randn(2, 1), requires_grad=True)
+        self.valid_emb = nn.Parameter(torch.randn(2, 1), requires_grad=True)
 
     def forward(
         self,
@@ -120,19 +118,26 @@ class MTST(nn.Module):
 
         # Whiten missing values
         h = x * mask
-        h = torch.where(
-            mask.bool(), h + self.get_embedding(0), h + self.get_embedding(1)
-        )
+        h = torch.where(mask.bool(), h + self.valid_emb[0], h + self.missing_emb[0])
+        device_index = 0
         for i, layer in enumerate(self.layers):
-            h = layer(h)
-            if i == 0:
-                h = torch.where(
-                    mask.bool(), h + self.get_embedding(2), h + self.get_embedding(3)
-                )
+            if layer.__class__.__qualname__ in ["MTST_layer", "Linear"]:
+                h = h.to(self.devices[device_index])
+                layer = layer.to(self.devices[device_index])
+                h = layer(h)
+                if i == 0:
+                    h = torch.where(
+                        mask.bool().to(self.devices[device_index]),
+                        h + self.valid_emb[1].to(self.devices[device_index]),
+                        h + self.missing_emb[1].to(self.devices[device_index]),
+                    )
+                device_index += 1
+            else:
+                h = layer(h)
 
         h = h.unflatten(0, (B, n)).permute((0, 2, 1))
         h = h.unsqueeze(3)
-        return h
+        return h.to(x.device)
 
     @staticmethod
     def add_model_specific_args(parser):

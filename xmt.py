@@ -1,8 +1,9 @@
 import torch
+import torch.nn as nn
 
-emb = torch.nn.Embedding(4, 1)
-index = torch.LongTensor([2])
-emb(index)[0][0]
-a = torch.randn(3, 4).to("cuda:1")
+device = "cuda:1"
+ff = nn.Linear(100, 100, device=device)
+print(ff.weight.device)
 
-a + emb(index)[0][0]
+ff = nn.Linear(100, 100).to(device)
+print(ff.weight.device)

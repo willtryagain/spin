@@ -65,7 +65,8 @@ class MTST_layer(nn.Module):
         num_patches = np.array(num_patches)
         strides = np.array(strides)
         flatten_size = (patch_sizes * num_patches).sum()
-        self.ff = Linear(flatten_size, input_size).to(device)
+        self.device = device
+        self.ff = Linear(flatten_size, input_size, device=device)
         self.patch_sizes = patch_sizes
         self.input_size = input_size
         self.num_patches = num_patches
@@ -81,5 +82,6 @@ class MTST_layer(nn.Module):
             outputs.append(y_i)
             # flatten the dims except first
         outputs = torch.column_stack(outputs)
+        self.ff = self.ff.to(self.device)
         y = self.ff(outputs)
         return y
