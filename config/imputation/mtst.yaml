@@ -3,12 +3,12 @@
 #### Dataset params ###########################################################
 #dataset_name: [la_point, bay_point, la_bock, bay_bock, air, air36]
 val_len: 0.1
-
-window: 160  # [24, 36]
+multiplier: 16
+window: 2 # [24, 36]
 stride: 1
 
 #### Training params ##########################################################
-whiten_prob: [0.2, 0.5, 0.8]
+whiten_prob: [0.8]
 scale_target: False
 
 epochs: 300
@@ -16,9 +16,9 @@ loss_fn: l1_loss
 
 lr_scheduler: cyc
 lr: 0.001
-patience: 40
+patience: 80
 precision: 16
-batch_size: 25
+batch_size: 2
 batch_inference: 20
 batches_epoch: 300
 
@@ -26,7 +26,6 @@ batches_epoch: 300
 model_name: 'mtst'
 norm: True
 node_index: 0
-seq_len: 160
-hidden_size: 512
-num_mtst_ff_layers: 3
-num_encoders: 3
+num_encoders: 1
+dropout: 0.2
+num_heads: 1

@@ -24,6 +24,8 @@ from tsl.ops.imputation import add_missing_values
 from tsl.utils import numpy_metrics, parser_utils
 from tsl.utils.parser_utils import ArgParser
 
+import wandb
+
 # print current working directory
 print(os.getcwd())
 
@@ -47,7 +49,7 @@ def get_model_classes(model_str):
     elif model_str == "brits":
         model, filler = BRITS, BRITSImputer
     elif model_str == "mtst":
-        model, filler = MTST, MTSTImputer
+        model, filler = MTST, SPINImputer
     else:
         raise ValueError(f"Model {model_str} not available.")
     return model, filler
@@ -163,6 +165,7 @@ def parse_args():
 
 def run_experiment(args):
     # Set configuration and seed
+    run = wandb.init(project="mtst v2", name="mtst for entire")
     args = copy.deepcopy(args)
     if args.seed < 0:
         args.seed = np.random.randint(1e9)
@@ -221,7 +224,9 @@ def run_experiment(args):
         connectivity=adj,
         exogenous=exog_map,
         input_map=input_map,
-        window=args.window,
+        window=args.window * args.multiplier
+        if args.model_name == "mtst"
+        else args.window,
         stride=args.stride,
     )
 
@@ -288,7 +293,6 @@ def run_experiment(args):
         scaler=scalers["data"],
         **imputer_kwargs,
     )
-
     ########################################
     # training                             #
     ########################################
@@ -302,7 +306,25 @@ def run_experiment(args):
     )
 
     # tb_logger = TensorBoardLogger(logdir, name="model")
-    wandb_logger = WandbLogger(name="SPINH-LA", log_model=False)
+    wandb_logger = WandbLogger(log_model=False)
+    """
+    
+    things I modified -
+    ----------------------------
+    batch_size
+    lr, scheduler
+    whiten prob
+    window
+    stride
+    seq_len
+    num_mtst_ff_layers
+    num_encoders
+    dropout
+    patch_size
+    num_patches
+    layer size decay
+    """
+    wandb.log(args.__dict__)
 
     trainer = pl.Trainer(
         max_epochs=args.epochs,
@@ -310,12 +332,14 @@ def run_experiment(args):
         logger=wandb_logger,
         precision=args.precision,
         accumulate_grad_batches=args.split_batch_in,
-        gpus=int(torch.cuda.is_available()),
+        # gpus=int(torch.cuda.is_available()),
+        log_every_n_steps=15,
         # gpus=1,
-        # accelerator="gpu",
-        # devices=4,
+        accelerator="gpu",
+        devices=3,
         # num_nodes=1,
-        # strategy="ddp",
+        strategy="ddp",
+        num_nodes=1,
         # strategy=DDPFullyShardedPlugin(min_num_params=1e6, cpu_offload=False),
         # gradient_clip_val=args.grad_clip_val,
         limit_train_batches=args.batches_epoch * args.split_batch_in,

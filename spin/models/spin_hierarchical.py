@@ -207,7 +207,6 @@ class SPINHierarchicalModel(nn.Module):
         # in both observed and target sets. Encoding are obtained by jointly  #
         # processing node and time positional encoding.                       #
         # Condition also embeddings Z on V.                                   #
-
         v_nodes = self.v(token_index=node_index)
         z = self.z[..., node_index, :] + self.lin_v(v_nodes)
 

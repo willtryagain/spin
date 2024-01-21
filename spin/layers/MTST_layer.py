@@ -9,7 +9,7 @@ from .vanilla_transformer import make_model
 
 
 def find_num_patches(window, patch_size, stride):
-    return (window - patch_size) // stride + 2
+    return max(1, (window - patch_size) // stride + 2)
 
 
 def create_patch(y, patch_size, stride):
@@ -17,7 +17,11 @@ def create_patch(y, patch_size, stride):
     y_next = y.clone()
     # append the last column stride times
     y_next = torch.cat([y_next, y[:, -1].unsqueeze(1).repeat(1, stride)], dim=1)
-    # ic(y_next.shape)
+    if y_next.shape[1] < patch_size:
+        y_next = torch.cat(
+            [y_next, y[:, -1].unsqueeze(1).repeat(1, patch_size - y_next.shape[1])],
+            dim=1,
+        )
     # ic(patch_size * stride, patch_size, stride)
 
     # split into patches
@@ -43,12 +47,13 @@ class MTST_layer(nn.Module):
             find_num_patches(input_size, patch_sizes[i], strides[i])
             for i in range(len(patch_sizes))
         ]
+
         self.trans_layers = [
             make_model(
                 seq_len,
                 num_encoders,
                 patch_size,
-                patch_size // 4,
+                12,
                 num_heads,
                 dropout,
                 RelativeGlobalAttention,
