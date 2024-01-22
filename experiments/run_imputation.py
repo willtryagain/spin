@@ -165,7 +165,7 @@ def parse_args():
 
 def run_experiment(args):
     # Set configuration and seed
-    run = wandb.init(project="mtst v2", name="mtst for entire")
+    run = wandb.init(project="mtst v2", name="what is forwarding nan")
     args = copy.deepcopy(args)
     if args.seed < 0:
         args.seed = np.random.randint(1e9)
@@ -342,6 +342,7 @@ def run_experiment(args):
         # gradient_clip_val=args.grad_clip_val,
         limit_train_batches=args.batches_epoch * args.split_batch_in,
         callbacks=[early_stop_callback, checkpoint_callback],
+        detect_anomaly=True
     )
 
     trainer.fit(

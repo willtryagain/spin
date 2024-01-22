@@ -76,12 +76,21 @@ class MTST_layer(nn.Module):
         outputs = []
         for i in range(len(self.patch_sizes)):
             y_i = create_patch(y, self.patch_sizes[i], self.strides[i])
+            
             # [bs x num_patch x patch_len]
+            # y_i = y_i.permute(0, 2, 1)
+            prev = y_i
             y_i = self.trans_layers[i](y_i)
+            if torch.isnan(y_i).any() and not torch.isnan(prev).any():
+                ic("patch is nan")
             y_i = y_i.flatten(start_dim=1)
             outputs.append(y_i)
             # flatten the dims except first
         outputs = torch.column_stack(outputs)
+
         self.ff = self.ff.to(self.device)
         y = self.ff(outputs)
+
+        if torch.isnan(y).any() and not torch.isnan(outputs).any():
+            ic("final layer ff is nan")
         return y

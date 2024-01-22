@@ -25,7 +25,11 @@ class Encoder(nn.Module):
         for layer in self.layers:
             x = layer(x)
 
-        return self.norm(x.transpose(1, 2)).transpose(1, 2)
+        res = self.norm(x.transpose(1, 2)).transpose(1, 2)
+
+        if torch.isnan(res).any() and not torch.isnan(x).any():
+            ic("encoder nan")
+        return res
 
 
 class SublayerConnection(nn.Module):
@@ -41,6 +45,10 @@ class SublayerConnection(nn.Module):
 
     def forward(self, x, sublayer):
         "Apply residual connection to any sublayer with the same size."
+        if x.shape[0] == 1:
+            # skip norm
+            ic("skipping norm")
+            return x + self.dropout(sublayer(x))
         return x + self.dropout(sublayer(self.norm(x.transpose(1, 2)).transpose(1, 2)))
 
 
@@ -56,12 +64,16 @@ class EncoderLayer(nn.Module):
 
     def forward(self, x):
         "Follow Figure 1 (left) for connections."
+        prev = x
         x = self.sublayer[0](x, lambda x: self.self_attn(x))
-        return self.sublayer[1](x, self.feed_forward)
+        if torch.isnan(x).any() and not torch.isnan(prev).any():
+            ic("attn", self.__class__.__qualname__)
+        res = self.sublayer[1](x, self.feed_forward)
+        return res
 
 
 class MultiHeadedAttention(nn.Module):
-    def __init__(self, h, d_model, attn, seq_len, dropout=0.1):
+    def __init__(self, h, d_model, attn, dropout=0.1):
         "Take in model size and number of heads."
         super(MultiHeadedAttention, self).__init__()
         assert d_model % h == 0
@@ -91,7 +103,6 @@ class PositionwiseFeedForward(nn.Module):
         return self.w_2(self.dropout(self.w_1(x).relu()))
 
 
-
 def make_model(
     seq_len,
     N=3,
@@ -106,7 +117,7 @@ def make_model(
     c = copy.deepcopy
     attn = attn(d_model, h, seq_len, dropout)
 
-    attn = MultiHeadedAttention(h, d_model, attn, seq_len, dropout).to(device)
+    attn = MultiHeadedAttention(h, d_model, attn, dropout).to(device)
     ff = PositionwiseFeedForward(d_model, d_ff, dropout).to(device)
     model = Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N).to(device)
 

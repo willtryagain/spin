@@ -37,36 +37,78 @@ class RelativeGlobalAttention(nn.Module):
             .reshape(batch_size, seq_len, self.num_heads, -1)
             .permute(0, 2, 3, 1)
         )
+        if torch.isnan(k_t).any() and not torch.isnan(x).any():
+            ic("k_t", self.__class__.__qualname__)
         # k_t.shape = (batch_size, num_heads, d_head, seq_len)
         v = (
             self.value(x)
             .reshape(batch_size, seq_len, self.num_heads, -1)
             .transpose(1, 2)
         )
+        if torch.isnan(v).any() and not torch.isnan(x).any():
+            ic("v", self.__class__.__qualname__, torch.isnan(x).any())
+            ic(x.max(), x.min())
+            ic(self.value.weight.isnan().any(), self.value.weight.isinf().any())
+            ic(self.value.weight.max(), self.value.weight.min())
+            ic(self.value.bias.isnan().any(), self.value.bias.isinf().any())
+            ic(self.value.bias.max(), self.value.bias.min())
+            ic(self.value.weight.shape, self.value.bias.shape)
+        # v.shape = (batch_size, num_heads, seq_len, d_head)
+
         q = (
             self.query(x)
             .reshape(batch_size, seq_len, self.num_heads, -1)
             .transpose(1, 2)
         )
+        if torch.isnan(q).any() and not torch.isnan(x).any():
+            ic("q", self.__class__.__qualname__)
         # shape = (batch_size, num_heads, seq_len, d_head)
 
         start = self.max_len - seq_len
         Er_t = self.Er[start:, :].transpose(0, 1)
+        if torch.isnan(Er_t).any():
+            ic("Er_t", self.__class__.__qualname__)
         # Er_t.shape = (d_head, seq_len)
         QEr = torch.matmul(q, Er_t)
+        if (
+            torch.isnan(QEr).any()
+            and not torch.isnan(q).any()
+            and not torch.isnan(Er_t).any()
+        ):
+            ic("QEr", self.__class__.__qualname__)
+
         # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
         Srel = self.skew(QEr)
+
         # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
 
         QK_t = torch.matmul(q, k_t)
+        if (
+            torch.isnan(QK_t).any()
+            and not torch.isnan(q).any()
+            and not torch.isnan(k_t).any()
+        ):
+            ic("QK_t", self.__class__.__qualname__)
         # QK_t.shape = (batch_size, num_heads, seq_len, seq_len)
         attn = (QK_t + Srel) / math.sqrt(q.size(-1))
+        if (
+            torch.isnan(attn).any()
+            and not torch.isnan(QK_t).any()
+            and not torch.isnan(Srel).any()
+        ):
+            ic("attn", self.__class__.__qualname__)
         mask = self.mask[:, :, :seq_len, :seq_len]
         # mask.shape = (1, 1, seq_len, seq_len)
         attn = attn.masked_fill(mask == 0, float("-inf"))
         # attn.shape = (batch_size, num_heads, seq_len, seq_len)
         attn = F.softmax(attn, dim=-1)
         out = torch.matmul(attn, v)
+        if (
+            torch.isnan(out).any()
+            and not torch.isnan(attn).any()
+            and not torch.isnan(v).any()
+        ):
+            ic("out", self.__class__.__qualname__)
         # out.shape = (batch_size, num_heads, seq_len, d_head)
         out = out.transpose(1, 2)
         # out.shape == (batch_size, seq_len, num_heads, d_head)

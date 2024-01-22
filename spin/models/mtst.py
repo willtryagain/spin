@@ -124,7 +124,10 @@ class MTST(nn.Module):
             if layer.__class__.__qualname__ in ["MTST_layer", "Linear"]:
                 h = h.to(self.devices[device_index])
                 layer = layer.to(self.devices[device_index])
+                prev = h
                 h = layer(h)
+                if torch.isnan(h).any() and not torch.isnan(prev).any():
+                    ic(i, layer.__class__.__qualname__)
                 if i == 0:
                     h = torch.where(
                         mask.bool().to(self.devices[device_index]),

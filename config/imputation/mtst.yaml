@@ -4,7 +4,7 @@
 #dataset_name: [la_point, bay_point, la_bock, bay_bock, air, air36]
 val_len: 0.1
 multiplier: 16
-window: 2 # [24, 36]
+window: 24 # [24, 36]
 stride: 1
 
 #### Training params ##########################################################
@@ -15,7 +15,7 @@ scale_target: False
 epochs: 300
 loss_fn: l1_loss
 
-lr_scheduler: cyc
+lr_scheduler: magic
 lr: 0.001
 patience: 80
 precision: 16
