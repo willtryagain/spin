@@ -59,7 +59,7 @@ class MTST_layer(nn.Module):
                 RelativeGlobalAttention,
                 device,
             )
-            for (seq_len, patch_size) in zip(num_patches, patch_sizes)
+            for (patch_size, seq_len) in zip(num_patches, patch_sizes)
         ]
         patch_sizes = np.array(patch_sizes)
         num_patches = np.array(num_patches)
@@ -78,9 +78,11 @@ class MTST_layer(nn.Module):
             y_i = create_patch(y, self.patch_sizes[i], self.strides[i])
             
             # [bs x num_patch x patch_len]
-            # y_i = y_i.permute(0, 2, 1)
+            y_i = y_i.permute(0, 2, 1)
             prev = y_i
             y_i = self.trans_layers[i](y_i)
+            if y_i.max().item() == torch.inf and prev.max().item() != torch.inf:
+                ic("patch is inf")
             if torch.isnan(y_i).any() and not torch.isnan(prev).any():
                 ic("patch is nan")
             y_i = y_i.flatten(start_dim=1)
@@ -90,6 +92,8 @@ class MTST_layer(nn.Module):
 
         self.ff = self.ff.to(self.device)
         y = self.ff(outputs)
+        if y.max().item() == torch.inf and outputs.max().item() != torch.inf:
+            ic("final layer ff is inf")
 
         if torch.isnan(y).any() and not torch.isnan(outputs).any():
             ic("final layer ff is nan")

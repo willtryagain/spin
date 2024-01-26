@@ -16,27 +16,31 @@ from tsl.nn.utils import casting
 from tsl.ops.imputation import add_missing_values, sample_mask
 from tsl.utils import ArgParser, parser_utils, numpy_metrics
 from tsl.utils.python_utils import ensure_list
+from icecream import ic
 
-from spin.baselines import SAITS, TransformerModel, BRITS
-from spin.imputers import SPINImputer, SAITSImputer, BRITSImputer
+from spin.models import MTST, SPINHierarchicalModel, SPINModel
 from spin.models import SPINModel, SPINHierarchicalModel
+from spin.imputers import MTSTImputer, SPINImputer
+
 
 
 def get_model_classes(model_str):
-    if model_str == 'spin':
+    if model_str == "spin":
         model, filler = SPINModel, SPINImputer
-    elif model_str == 'spin_h':
+    elif model_str == "spin_h":
         model, filler = SPINHierarchicalModel, SPINImputer
-    elif model_str == 'grin':
+    elif model_str == "grin":
         model, filler = GRINModel, Imputer
-    elif model_str == 'saits':
+    elif model_str == "saits":
         model, filler = SAITS, SAITSImputer
-    elif model_str == 'transformer':
+    elif model_str == "transformer":
         model, filler = TransformerModel, SPINImputer
-    elif model_str == 'brits':
+    elif model_str == "brits":
         model, filler = BRITS, BRITSImputer
+    elif model_str == "mtst":
+        model, filler = MTST, SPINImputer
     else:
-        raise ValueError(f'Model {model_str} not available.')
+        raise ValueError(f"Model {model_str} not available.")
     return model, filler
 
 
@@ -129,8 +133,9 @@ def load_model(exp_dir, exp_config, dm):
             break
     if model_path is None:
         raise ValueError(f"Model not found.")
+    imputer.load_from_checkpoint(model_path)
 
-    imputer.load_model(model_path)
+    # imputer.load_model(model_path)
     imputer.freeze()
     return imputer
 
@@ -163,6 +168,8 @@ def run_experiment(args):
         root = tsl.config.log_dir
     else:
         root = os.path.join(tsl.config.curr_dir, args.root)
+    ic(root, args.dataset_name, args.model_name, args.exp_name)
+    
     exp_dir = os.path.join(root, args.dataset_name,
                            args.model_name, args.exp_name)
 
@@ -180,7 +187,7 @@ def run_experiment(args):
     ########################################
 
     # time embedding
-    if is_spin or args.model_name == 'transformer':
+    if is_spin or args.model_name == 'transformer' or args.model_name == "mtst":
         time_emb = dataset.datetime_encoded(['day', 'week']).values
         exog_map = {'global_temporal_encoding': time_emb}
 
@@ -191,7 +198,7 @@ def run_experiment(args):
     else:
         exog_map = input_map = None
 
-    if is_spin or args.model_name == 'grin':
+    if is_spin or args.model_name == 'mtst':
         adj = dataset.get_connectivity(threshold=args.adj_threshold,
                                        include_self=False,
                                        force_symmetric=is_spin)
@@ -205,7 +212,7 @@ def run_experiment(args):
                                       connectivity=adj,
                                       exogenous=exog_map,
                                       input_map=input_map,
-                                      window=exp_config['window'],
+                                      window=exp_config['window'] * exp_config['multiplier'],
                                       stride=exp_config['stride'])
 
     # get train/val/test indices

@@ -23,7 +23,10 @@ class Encoder(nn.Module):
     def forward(self, x):
         "Pass the input (and mask) through each layer in turn."
         for layer in self.layers:
+            prev = x
             x = layer(x)
+            if x.max().item() == torch.inf and prev.max().item() != torch.inf:
+                ic("encoder inf")
 
         res = self.norm(x.transpose(1, 2)).transpose(1, 2)
 
@@ -45,11 +48,10 @@ class SublayerConnection(nn.Module):
 
     def forward(self, x, sublayer):
         "Apply residual connection to any sublayer with the same size."
-        if x.shape[0] == 1:
-            # skip norm
-            ic("skipping norm")
-            return x + self.dropout(sublayer(x))
-        return x + self.dropout(sublayer(self.norm(x.transpose(1, 2)).transpose(1, 2)))
+        if torch.isnan(self.norm(x.permute(0, 2, 1))).any() and not torch.isnan(x).any():
+            ic("sublayer nan", x.shape)
+            ic(x.min(), x.max(), self.norm.weight.min(), self.norm.weight.max())
+        return x + self.dropout(sublayer(self.norm(x.permute(0, 2, 1)).permute(0, 2, 1)))
 
 
 class EncoderLayer(nn.Module):
@@ -69,6 +71,8 @@ class EncoderLayer(nn.Module):
         if torch.isnan(x).any() and not torch.isnan(prev).any():
             ic("attn", self.__class__.__qualname__)
         res = self.sublayer[1](x, self.feed_forward)
+        if torch.isnan(res).any() and not torch.isnan(prev).any():
+            ic("ff", self.__class__.__qualname__)
         return res
 
 

@@ -30,4 +30,4 @@ rsync -avz vaibhav.bhushan@ada.iiit.ac.in:/home2/vaibhav.bhushan/temp/ --exclude
 eval "$(conda shell.bash hook)"
 conda activate spin
 
-python -m experiments.run_imputation --config imputation/mtst.yaml --dataset-name la_point
+python -m experiments.temp --config imputation/spin_h.yaml --dataset-name la_point

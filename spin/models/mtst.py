@@ -49,6 +49,7 @@ class MTST(nn.Module):
         self.layers = nn.ModuleList([])
 
         device_index = 0
+        self.index_cnt = -2
 
         for i in range(len(multipliers) - 1):
             self.layers.append(
@@ -73,6 +74,11 @@ class MTST(nn.Module):
             device_index += 1
             self.layers.append(nn.GELU())
             self.layers.append(nn.Dropout(dropout))
+            self.layers.append(
+                BatchNorm1d(
+                    multipliers[i + 1] * T_S, device=self.devices[device_index - 1]
+                )
+            )
 
         self.layers.append(
             MTST_layer(
@@ -109,6 +115,7 @@ class MTST(nn.Module):
         target_nodes: OptTensor = None,
     ):
         x = x.squeeze()
+        self.index_cnt += 1
 
         mask = mask.squeeze()
         B, L, n = x.shape
@@ -128,6 +135,8 @@ class MTST(nn.Module):
                 h = layer(h)
                 if torch.isnan(h).any() and not torch.isnan(prev).any():
                     ic(i, layer.__class__.__qualname__)
+                if h.max().item() == torch.inf and prev.max().item() != torch.inf:
+                    ic(i, layer.__class__.__qualname__, h.max(), prev.max())
                 if i == 0:
                     h = torch.where(
                         mask.bool().to(self.devices[device_index]),
@@ -136,6 +145,8 @@ class MTST(nn.Module):
                     )
                 device_index += 1
             else:
+                if layer.__class__.__qualname__ == "BatchNorm1d":
+                    layer = layer.to(self.devices[device_index - 1])
                 h = layer(h)
 
         h = h.unflatten(0, (B, n)).permute((0, 2, 1))

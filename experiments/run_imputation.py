@@ -20,9 +20,10 @@ from tsl.imputers import Imputer
 from tsl.nn.metrics import MaskedMAE, MaskedMetric, MaskedMRE, MaskedMSE
 from tsl.nn.models.imputation import GRINModel
 from tsl.nn.utils import casting
-from tsl.ops.imputation import add_missing_values
+from tsl.ops.imputation import add_missing_values, sample_mask
 from tsl.utils import numpy_metrics, parser_utils
 from tsl.utils.parser_utils import ArgParser
+from tsl.utils.python_utils import ensure_list
 
 import wandb
 
@@ -33,6 +34,24 @@ from spin.baselines import TransformerModel
 from spin.imputers import MTSTImputer, SPINImputer
 from spin.models import MTST, SPINHierarchicalModel, SPINModel
 from spin.scheduler import CosineSchedulerWithRestarts, CycScheduler
+
+
+def update_test_eval_mask(dm, dataset, p_fault, p_noise, seed=None):
+    if seed is None:
+        seed = np.random.randint(1e9)
+    random = np.random.default_rng(seed)
+    dataset.set_eval_mask(
+        sample_mask(
+            dataset.shape,
+            p=p_fault,
+            p_noise=p_noise,
+            min_seq=12,
+            max_seq=36,
+            rng=random,
+        )
+    )
+    dm.torch_dataset.set_mask(dataset.training_mask)
+    dm.torch_dataset.update_exogenous("eval_mask", dataset.eval_mask)
 
 
 def get_model_classes(model_str):
@@ -165,7 +184,7 @@ def parse_args():
 
 def run_experiment(args):
     # Set configuration and seed
-    run = wandb.init(project="mtst v2", name="what is forwarding nan")
+    run = wandb.init(project="mtst v2", name="batchnorm works better?")
     args = copy.deepcopy(args)
     if args.seed < 0:
         args.seed = np.random.randint(1e9)
@@ -342,7 +361,8 @@ def run_experiment(args):
         # gradient_clip_val=args.grad_clip_val,
         limit_train_batches=args.batches_epoch * args.split_batch_in,
         callbacks=[early_stop_callback, checkpoint_callback],
-        detect_anomaly=True
+        detect_anomaly=True,
+        auto_lr_find=True,
     )
 
     trainer.fit(
@@ -356,6 +376,9 @@ def run_experiment(args):
     ########################################
 
     imputer.load_model(checkpoint_callback.best_model_path)
+
+    ic("ckpt path:", checkpoint_callback.best_model_path)
+
     imputer.freeze()
     trainer.test(
         imputer, dataloaders=dm.test_dataloader(batch_size=args.batch_inference)
@@ -377,6 +400,7 @@ def run_experiment(args):
 
     check_mae = numpy_metrics.masked_mae(y_hat, y_true, mask)
     print(f"Test MAE: {check_mae:.2f}")
+
     return y_hat
 
 

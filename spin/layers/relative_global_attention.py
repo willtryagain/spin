@@ -27,6 +27,10 @@ class RelativeGlobalAttention(nn.Module):
 
     def forward(self, x):
         # x.shape == (batch_size, seq_len, d_model)
+        if x.max().item() == torch.inf:
+            ic("inf x", self.__class__.__qualname__)
+        if torch.isnan(x).any():
+            ic("nan x", self.__class__.__qualname__)
         batch_size, seq_len, _ = x.shape
 
         if seq_len > self.max_len:
@@ -39,12 +43,18 @@ class RelativeGlobalAttention(nn.Module):
         )
         if torch.isnan(k_t).any() and not torch.isnan(x).any():
             ic("k_t", self.__class__.__qualname__)
+
+        if k_t.max().item() == torch.inf:
+            ic("inf k_t", self.__class__.__qualname__)
         # k_t.shape = (batch_size, num_heads, d_head, seq_len)
         v = (
             self.value(x)
             .reshape(batch_size, seq_len, self.num_heads, -1)
             .transpose(1, 2)
         )
+        if v.max().item() == torch.inf:
+            ic("inf v", self.__class__.__qualname__)
+
         if torch.isnan(v).any() and not torch.isnan(x).any():
             ic("v", self.__class__.__qualname__, torch.isnan(x).any())
             ic(x.max(), x.min())
@@ -60,6 +70,9 @@ class RelativeGlobalAttention(nn.Module):
             .reshape(batch_size, seq_len, self.num_heads, -1)
             .transpose(1, 2)
         )
+
+        if q.max().item() == torch.inf:
+            ic("inf q", self.__class__.__qualname__)
         if torch.isnan(q).any() and not torch.isnan(x).any():
             ic("q", self.__class__.__qualname__)
         # shape = (batch_size, num_heads, seq_len, d_head)
@@ -76,10 +89,16 @@ class RelativeGlobalAttention(nn.Module):
             and not torch.isnan(Er_t).any()
         ):
             ic("QEr", self.__class__.__qualname__)
+        if QEr.max().item() == torch.inf:
+            ic("inf QEr", self.__class__.__qualname__)
 
         # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
         Srel = self.skew(QEr)
+        if torch.isnan(Srel).any() and not torch.isnan(QEr).any():
+            ic("Srel", self.__class__.__qualname__)
 
+        if Srel.max().item() == torch.inf:
+            ic("inf Srel", self.__class__.__qualname__)
         # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
 
         QK_t = torch.matmul(q, k_t)
@@ -89,6 +108,9 @@ class RelativeGlobalAttention(nn.Module):
             and not torch.isnan(k_t).any()
         ):
             ic("QK_t", self.__class__.__qualname__)
+
+        if QK_t.max().item() == torch.inf:
+            ic("inf QK_t", self.__class__.__qualname__)
         # QK_t.shape = (batch_size, num_heads, seq_len, seq_len)
         attn = (QK_t + Srel) / math.sqrt(q.size(-1))
         if (
@@ -97,11 +119,20 @@ class RelativeGlobalAttention(nn.Module):
             and not torch.isnan(Srel).any()
         ):
             ic("attn", self.__class__.__qualname__)
+
+        if attn.max().item() == torch.inf:
+            ic("inf attn", self.__class__.__qualname__)
         mask = self.mask[:, :, :seq_len, :seq_len]
         # mask.shape = (1, 1, seq_len, seq_len)
         attn = attn.masked_fill(mask == 0, float("-inf"))
         # attn.shape = (batch_size, num_heads, seq_len, seq_len)
+        prev = attn
         attn = F.softmax(attn, dim=-1)
+        if torch.isnan(attn).any() and not torch.isnan(prev).any():
+            ic("attn", self.__class__.__qualname__)
+
+        if attn.max().item() == torch.inf:
+            ic("inf attn", self.__class__.__qualname__)
         out = torch.matmul(attn, v)
         if (
             torch.isnan(out).any()
@@ -109,6 +140,9 @@ class RelativeGlobalAttention(nn.Module):
             and not torch.isnan(v).any()
         ):
             ic("out", self.__class__.__qualname__)
+
+        if out.max().item() == torch.inf:
+            ic("inf out", self.__class__.__qualname__)
         # out.shape = (batch_size, num_heads, seq_len, d_head)
         out = out.transpose(1, 2)
         # out.shape == (batch_size, seq_len, num_heads, d_head)
