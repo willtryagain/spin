@@ -9,15 +9,15 @@ stride: 1
 
 #### Training params ##########################################################
 whiten_prob: [0.2, 0.5, 0.8]
-grad_clip_val: 0.5
+grad_clip_val: 5
 scale_target: False
 
 epochs: 300
-loss_fn: l2_loss
+loss_fn: l1_loss
 
 lr_scheduler: magic
 lr: 0.001
-patience: 80
+patience: 40
 precision: 16
 batch_size: 2
 batch_inference: 20

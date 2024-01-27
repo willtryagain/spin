@@ -71,9 +71,10 @@ class MTST(nn.Module):
             )
             device_index += 1
             self.layers.append(
-                nn.Linear(
-                    multipliers[i] * T_S,
-                    multipliers[i + 1] * T_S,
+                nn.Conv1d(
+                    1,
+                    1,
+                    4 * T_S + 1,
                     device=self.devices[device_index],
                 )
             )
@@ -138,11 +139,18 @@ class MTST(nn.Module):
         h = torch.where(mask.bool(), h + self.valid_emb[0], h + self.missing_emb[0])
         device_index = 0
         for i, layer in enumerate(self.layers):
-            if layer.__class__.__qualname__ in ["MTST_layer", "Linear"]:
+            if layer.__class__.__qualname__ in ["MTST_layer", "Linear", "Conv1d"]:
                 h = h.to(self.devices[device_index])
                 layer = layer.to(self.devices[device_index])
                 prev = h
-                h = layer(h)
+
+                if layer.__class__.__qualname__ == "Conv1d":
+                    h = h.unsqueeze(1)
+                    h = layer(h)
+                    h = h.squeeze(1)
+
+                else:
+                    h = layer(h)
                 if torch.isnan(h).any() and not torch.isnan(prev).any():
                     ic(i, layer.__class__.__qualname__)
                 if h.max().item() == torch.inf and prev.max().item() != torch.inf:
