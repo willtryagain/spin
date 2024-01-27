@@ -18,6 +18,12 @@ from tsl.nn.layers import PositionalEncoding
 from ..layers import MTST_layer
 
 
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight)
+        nn.init.zeros_(m.bias)
+
+
 def find_patch_len(seq_len, m=1):
     return [
         seq_len // pow(2, m),
@@ -72,7 +78,7 @@ class MTST(nn.Module):
                 )
             )
             device_index += 1
-            self.layers.append(nn.GELU())
+            self.layers.append(nn.SELU())
             self.layers.append(nn.Dropout(dropout))
             self.layers.append(
                 BatchNorm1d(
@@ -100,9 +106,11 @@ class MTST(nn.Module):
                 device=self.devices[device_index],
             )
         )
-
+        self.prev_log = None
         self.missing_emb = nn.Parameter(torch.randn(2, 1), requires_grad=True)
         self.valid_emb = nn.Parameter(torch.randn(2, 1), requires_grad=True)
+
+        self.apply(init_weights)
 
     def forward(
         self,
@@ -116,6 +124,8 @@ class MTST(nn.Module):
     ):
         x = x.squeeze()
         self.index_cnt += 1
+        cur_max_log = []
+        assert not torch.isnan(x).any()
 
         mask = mask.squeeze()
         B, L, n = x.shape
@@ -137,6 +147,8 @@ class MTST(nn.Module):
                     ic(i, layer.__class__.__qualname__)
                 if h.max().item() == torch.inf and prev.max().item() != torch.inf:
                     ic(i, layer.__class__.__qualname__, h.max(), prev.max())
+                    ic(cur_max_log)
+                    ic(self.prev_log)
                 if i == 0:
                     h = torch.where(
                         mask.bool().to(self.devices[device_index]),
@@ -148,9 +160,11 @@ class MTST(nn.Module):
                 if layer.__class__.__qualname__ == "BatchNorm1d":
                     layer = layer.to(self.devices[device_index - 1])
                 h = layer(h)
+            cur_max_log.append((i, h.max().item()))
 
         h = h.unflatten(0, (B, n)).permute((0, 2, 1))
         h = h.unsqueeze(3)
+        self.prev_log = cur_max_log
         return h.to(x.device)
 
     @staticmethod
@@ -162,4 +176,4 @@ class MTST(nn.Module):
         parser.add_argument("--num-heads", type=int, default=1)
         parser.add_argument("--dropout", type=float, default=0.3)
 
-        return parse
+        return parse_

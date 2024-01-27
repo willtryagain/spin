@@ -126,7 +126,7 @@ def get_scheduler(scheduler_name: str = None, args=None):
     elif scheduler_name == "cyc":
         scheduler_class = CycScheduler
         scheduler_kwargs = dict(
-            max_lr=1e-3,
+            max_lr=1e-4,
             epochs=args.epochs,
             steps_per_epoch=args.epochs * 300,
         )
@@ -184,7 +184,7 @@ def parse_args():
 
 def run_experiment(args):
     # Set configuration and seed
-    run = wandb.init(project="mtst v2", name="batchnorm works better?")
+    run = wandb.init(project="mtst v2", name="l2_loss")
     args = copy.deepcopy(args)
     if args.seed < 0:
         args.seed = np.random.randint(1e9)
@@ -358,7 +358,7 @@ def run_experiment(args):
         # num_nodes=1,
         # strategy="ddp",
         # strategy=DDPFullyShardedPlugin(min_num_params=1e6, cpu_offload=False),
-        # gradient_clip_val=args.grad_clip_val,
+        gradient_clip_val=args.grad_clip_val,
         limit_train_batches=args.batches_epoch * args.split_batch_in,
         callbacks=[early_stop_callback, checkpoint_callback],
         detect_anomaly=True,

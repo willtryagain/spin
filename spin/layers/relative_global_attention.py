@@ -6,6 +6,12 @@ import torch.nn.functional as F
 from icecream import ic
 
 
+def init_weights(m):
+    if isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight)
+        nn.init.zeros_(m.bias)
+
+
 class RelativeGlobalAttention(nn.Module):
     def __init__(self, d_model, num_heads, max_len=1024, dropout=0.1):
         super().__init__()
@@ -20,10 +26,14 @@ class RelativeGlobalAttention(nn.Module):
         self.query = nn.Linear(d_model, d_model)
         self.dropout = nn.Dropout(dropout)
         self.Er = nn.Parameter(torch.randn(max_len, d_head))
+        self.qk_coeff = nn.Parameter(torch.tensor(1 / max_len).to(torch.float16))
         self.register_buffer(
             "mask", torch.ones(max_len, max_len).unsqueeze(0).unsqueeze(0)
         )
         # self.mask.shape = (1, 1, max_len, max_len)
+
+        self.apply(init_weights)
+
 
     def forward(self, x):
         # x.shape == (batch_size, seq_len, d_model)
@@ -41,6 +51,8 @@ class RelativeGlobalAttention(nn.Module):
             .reshape(batch_size, seq_len, self.num_heads, -1)
             .permute(0, 2, 3, 1)
         )
+        k_t_norm = torch.norm(k_t, dim=-2, keepdim=True) + 1e-5
+        k_t = k_t / k_t_norm
         if torch.isnan(k_t).any() and not torch.isnan(x).any():
             ic("k_t", self.__class__.__qualname__)
 
@@ -70,6 +82,8 @@ class RelativeGlobalAttention(nn.Module):
             .reshape(batch_size, seq_len, self.num_heads, -1)
             .transpose(1, 2)
         )
+        q_norm = torch.norm(q, dim=2, keepdim=True) + 1e-5
+        q = q / q_norm
 
         if q.max().item() == torch.inf:
             ic("inf q", self.__class__.__qualname__)
@@ -101,7 +115,9 @@ class RelativeGlobalAttention(nn.Module):
             ic("inf Srel", self.__class__.__qualname__)
         # Srel.shape = (batch_size, num_heads, seq_len, seq_len)
 
+        # QK_t = torch.matmul(q.long(), k_t.long())
         QK_t = torch.matmul(q, k_t)
+
         if (
             torch.isnan(QK_t).any()
             and not torch.isnan(q).any()
@@ -112,7 +128,8 @@ class RelativeGlobalAttention(nn.Module):
         if QK_t.max().item() == torch.inf:
             ic("inf QK_t", self.__class__.__qualname__)
         # QK_t.shape = (batch_size, num_heads, seq_len, seq_len)
-        attn = (QK_t + Srel) / math.sqrt(q.size(-1))
+        attn = (QK_t + Srel) * self.qk_coeff
+        attn = attn.to(x.dtype)
         if (
             torch.isnan(attn).any()
             and not torch.isnan(QK_t).any()
@@ -148,7 +165,8 @@ class RelativeGlobalAttention(nn.Module):
         # out.shape == (batch_size, seq_len, num_heads, d_head)
         out = out.reshape(batch_size, seq_len, -1)
         # out.shape == (batch_size, seq_len, d_model)
-        return self.dropout(out)
+
+        return self.dropout(out).to(torch.float16)
 
     def skew(self, QEr):
         # QEr.shape = (batch_size, num_heads, seq_len, seq_len)
