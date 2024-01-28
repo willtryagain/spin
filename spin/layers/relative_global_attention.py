@@ -15,6 +15,7 @@ def init_weights(m):
 class RelativeGlobalAttention(nn.Module):
     def __init__(self, d_model, num_heads, max_len=1024, dropout=0.1):
         super().__init__()
+        ic(d_model, num_heads)
         d_head, remainder = divmod(d_model, num_heads)
         if remainder:
             raise ValueError("incompatible `d_model` and `num_heads`")

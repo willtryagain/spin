@@ -4,7 +4,7 @@
 #dataset_name: [la_point, bay_point, la_bock, bay_bock, air, air36]
 val_len: 0.1
 multiplier: 16
-window: 24 # [24, 36]
+window: 16 # [24, 36]
 stride: 1
 
 #### Training params ##########################################################
@@ -16,7 +16,7 @@ epochs: 300
 loss_fn: l1_loss
 
 lr_scheduler: magic
-lr: 0.001
+lr:  0.0008
 patience: 40
 precision: 16
 batch_size: 2
@@ -29,4 +29,4 @@ norm: True
 node_index: 0
 num_encoders: 1
 dropout: 0.2
-num_heads: 1
+num_heads: 2
