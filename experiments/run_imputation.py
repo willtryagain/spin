@@ -184,7 +184,7 @@ def parse_args():
 
 def run_experiment(args):
     # Set configuration and seed
-    run = wandb.init(project="mtst v2", name="ts = 16, rev with magic, h2")
+    run = wandb.init(project="mtst v2", name="num_heads=1, t_s=24")
     args = copy.deepcopy(args)
     if args.seed < 0:
         args.seed = np.random.randint(1e9)
