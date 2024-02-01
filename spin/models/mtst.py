@@ -57,7 +57,7 @@ class MTST(nn.Module):
         device_index = 0
         self.index_cnt = -2
 
-        for i in range(len(multipliers) - 1):
+        for i in range(2):
             self.layers.append(
                 MTST_layer(
                     multipliers[i] * T_S,

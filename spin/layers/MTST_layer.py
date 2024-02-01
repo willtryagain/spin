@@ -59,7 +59,7 @@ class MTST_layer(nn.Module):
                 RelativeGlobalAttention,
                 device,
             )
-            for (patch_size, seq_len) in zip(num_patches, patch_sizes)
+            for (seq_len, patch_size) in zip(num_patches, patch_sizes)
         ]
         patch_sizes = np.array(patch_sizes)
         num_patches = np.array(num_patches)
@@ -78,7 +78,6 @@ class MTST_layer(nn.Module):
             y_i = create_patch(y, self.patch_sizes[i], self.strides[i])
             
             # [bs x num_patch x patch_len]
-            y_i = y_i.permute(0, 2, 1)
             prev = y_i
             y_i = self.trans_layers[i](y_i)
             if y_i.max().item() == torch.inf and prev.max().item() != torch.inf:
