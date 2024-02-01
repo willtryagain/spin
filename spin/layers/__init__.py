@@ -6,3 +6,4 @@ from .temporal_graph_additive_attention import (
     TemporalGraphAdditiveAttention,
 )
 from .MTST_layer import MTST_layer
+from .diff_pool_layer import DiffPool

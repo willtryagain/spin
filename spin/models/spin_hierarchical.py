@@ -11,7 +11,7 @@ from torch_geometric.typing import List, OptTensor, Union
 from tsl.nn.blocks.encoders import MLP
 from tsl.nn.layers import PositionalEncoding
 
-from ..layers import HierarchicalTemporalGraphAttention, PositionalEncoder
+from ..layers import DiffPool, HierarchicalTemporalGraphAttention, PositionalEncoder
 
 
 class StaticGraphEmbedding(nn.Module):
@@ -134,12 +134,20 @@ class SPINHierarchicalModel(nn.Module):
         spatial_aggr: str = "add",
     ):
         super(SPINHierarchicalModel, self).__init__()
-
+        dont_pool = False
+        self.dont_pool = dont_pool
         u_size = u_size or input_size
         output_size = output_size or input_size
         self.h_size = h_size
         self.z_size = z_size
-
+        self.og_nodes = n_nodes
+        if dont_pool:
+            pass
+        else:
+            n_nodes = (2 * n_nodes) // 3
+        steps = 24
+        self.shrink_pool = DiffPool(steps, input_size, n_nodes)
+        self.expand_pool = DiffPool(steps, input_size, self.og_nodes)
         self.n_nodes = n_nodes
         self.z_heads = z_heads
         self.n_layers = n_layers
@@ -187,6 +195,29 @@ class SPINHierarchicalModel(nn.Module):
             self.encoder.append(encoder)
             self.readout.append(readout)
 
+    def pool_data(self, pool, x, edge_index, mask, num_nodes):
+        assign_mat = pool(x, edge_index)
+        assign_mat = assign_mat.mean(0)
+        assign_mat = nn.Softmax(dim=1)(assign_mat)
+        x = torch.einsum("bsnc, nm -> bsmc", x, assign_mat)
+        adj = torch.zeros(num_nodes, num_nodes).to(x.device)
+        adj[edge_index[0], edge_index[1]] = 1
+        adj_new = assign_mat.T @ adj @ assign_mat
+        # to binary adjacency matrix
+        threshold = 0.5
+        adj_new[adj_new > threshold] = 1
+        adj_new[adj_new <= threshold] = 0
+        adj_new = adj_new.to(x.device)
+        edge_index = torch.nonzero(adj_new).T
+
+        mask = mask.to(torch.float16)
+        mask = torch.einsum("bsnc, nm -> bsmc", mask, assign_mat)
+        mask[mask > threshold] = 1
+        mask[mask <= threshold] = 0
+        mask = mask.to(x.device)
+
+        return x, edge_index, mask
+
     def forward(
         self,
         x: Tensor,
@@ -197,6 +228,13 @@ class SPINHierarchicalModel(nn.Module):
         node_index: OptTensor = None,
         target_nodes: OptTensor = None,
     ):
+        if self.dont_pool:
+            pass
+        else:
+            x, edge_index, mask = self.pool_data(
+                self.shrink_pool, x, edge_index, mask, self.og_nodes
+            )
+
         if target_nodes is None:
             target_nodes = slice(None)
         if node_index is None:
@@ -237,10 +275,18 @@ class SPINHierarchicalModel(nn.Module):
             # Masked Temporal GAT for encoding representation
             h, z = self.encoder[l](h, z, edge_index, mask=mask)
             target_readout = self.readout[l](h[..., target_nodes, :])
+
+            if self.dont_pool:
+                pass
+            else:
+                target_readout, _, _ = self.pool_data(
+                    self.expand_pool, target_readout, edge_index, mask, self.n_nodes
+                )
+
             imputations.append(target_readout)
 
         x_hat = imputations.pop(-1)
-
+        breakpoint()
         return x_hat, imputations
 
     @staticmethod
